@@ -3,11 +3,10 @@
   "title": "Acknowledge user",
   "titleGenerationStatus": "success",
   "createdAt": 1773644704489,
-  "updatedAt": 1773648223206,
+  "updatedAt": 1773648342027,
   "lastResponseAt": 1773648218360,
   "sessionId": "089711d7-9733-408e-a74d-c573684f1e79",
   "sdkSessionId": "089711d7-9733-408e-a74d-c573684f1e79",
-  "currentNote": "podcast/Pieter Levels - Programming, Viral AI Startups, and Digital Nomad Life - 双语.md",
   "usage": {
     "model": "MiniMax-M2.5",
     "inputTokens": 139,

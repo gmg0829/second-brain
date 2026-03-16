@@ -1,13 +1,25 @@
 # Obsidian Knowledge Base / Obsidian 知识库
 
-> Personal Knowledge Management System - For saving podcast, video, and article summaries  
+> Personal Knowledge Management System - For saving podcast, video, and article summaries
 > 个人知识管理系统 - 用于保存播客、视频、文章等内容总结
 
 ---
 
 <!-- tabs:start -->
 
-## **English**
+## 🌐 Language / 语言
+
+<div align="center">
+
+[**English**](#english) · [**中文**](#中文)
+
+</div>
+
+---
+
+<!-- tab:EN 🇺🇸 -->
+
+# 🇺🇸 English
 
 ### Directory Structure
 
@@ -54,7 +66,9 @@
 
 ---
 
-### 中文
+<!-- tab:中文 🇨🇳 -->
+
+# 🇨🇳 中文
 
 ### 目录结构
 
@@ -103,5 +117,5 @@
 
 ---
 
-*Organized by AI Assistant gmg-clawbot 🦞*  
+*Organized by AI Assistant gmg-clawbot 🦞*
 *Last updated: 2026-03-16*

@@ -1,0 +1,20 @@
+{
+  "id": "conv-1773648367191-s9go9vi5d",
+  "title": "Optimize bilingual language switching",
+  "titleGenerationStatus": "success",
+  "createdAt": 1773648367192,
+  "updatedAt": 1773648478049,
+  "lastResponseAt": 1773648478049,
+  "sessionId": "07a3c0e0-1e2b-45ae-969b-3b5705d25f50",
+  "sdkSessionId": "07a3c0e0-1e2b-45ae-969b-3b5705d25f50",
+  "currentNote": "README.md",
+  "usage": {
+    "model": "MiniMax-M2.5",
+    "inputTokens": 7207,
+    "cacheCreationInputTokens": 0,
+    "cacheReadInputTokens": 19315,
+    "contextWindow": 200000,
+    "contextTokens": 26522,
+    "percentage": 13
+  }
+}
