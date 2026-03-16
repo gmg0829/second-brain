@@ -1,76 +1,107 @@
-# Obsidian 笔记库
+# Obsidian Knowledge Base / Obsidian 知识库
 
-> 用于保存从 YouTube、视频、文章等内容总结的个人知识库
-
----
-
-## 目录说明
-
-| 目录 | 内容 |
-|------|------|
-| `podcast/` |（ 播客总结Andrej Karpathy, Alex Hormozi 等） |
-| `youtube/` | YouTube 视频总结 |
-| `claude/` | Claude AI 官方教程和文档 |
-| `dankoe/` | Dan Koe 博客文章翻译 |
-| `ai-product-classics/` | AI 产品经典文章合集 |
-| `vide coding/` | AI 产品开发相关文章 |
-| `learning-skills/` | 学习技巧和方法文章 |
-| `openai/` | OpenAI/Y Combinator 创业课程 |
-| `The Diary Of A CEO/` | The Diary Of A CEO 播客总结 |
-| `twitter article/` | Twitter/X 文章翻译 |
-| `prompt/` | 提示词和 Prompt 模板 |
-| `.obsidian/` | Obsidian 配置目录 |
+> Personal Knowledge Management System - For saving podcast, video, and article summaries  
+> 个人知识管理系统 - 用于保存播客、视频、文章等内容总结
 
 ---
 
-## 内容统计
+<!-- tabs:start -->
 
-### YouTube 视频总结
+## **English**
 
-- **Andrej Karpathy**: LLM 深度教程、How to use LLMs
-- **Alex Hormozi**: 创业、赚钱、财富思维
-- **Ali Abdaal**: 学习技巧、记忆力
-- **The Diary Of A CEO**: 多位嘉宾访谈
-- **其他**: 多个 AI 和生产力主题
+### Directory Structure
 
-### 文章翻译
+| Directory | Content | Notes |
+|-----------|---------|-------|
+| `podcast/` | Podcast summaries (Lex Fridman, a16z, Andrej Karpathy, etc.) | 4 |
+| `youtube/` | YouTube video summaries | 10 |
+| `claude/` | Claude AI official tutorials and documentation | 14 |
+| `dankoe/` | Dan Koe blog article translations | 3 |
+| `ai-product-classics/` | AI product classic articles | 3 |
+| `vide coding/` | AI coding / product development articles | 7 |
+| `learning-skills/` | Learning skills and methods articles | 4 |
+| `openai/` | OpenAI / Y Combinator startup courses | 3 |
+| `The Diary Of A CEO/` | The Diary Of A CEO podcast summaries | 5 |
+| `x article/` | Twitter/X article translations | 2 |
+| `prompt engine/` | Prompt templates | 2 |
+| `AI Taste/` | AI curated articles | 3 |
+| `.obsidian/` | Obsidian configuration directory | - |
 
-- **Dan Koe**: HUMAN 3.0 系列
-- **AI 产品经典**: 10+ 篇深度文章
-- **产品管理**: Atlassian, Roman Pichler, DigitalOcean 等
-- **Twitter/X**: 热门推文翻译
+### Content Statistics
 
-### 播客总结
+- **Total Notes**: 63
+- **Language**: Bilingual (English/Chinese) as primary format
 
-- Lex Fridman Podcast
-- Lenny's Newsletter
-- Hidden Layers (KUNGFU.AI)
-- The Diary Of A CEO (多集)
+#### Core Content Sources
+
+- **Podcasts**: Lex Fridman Podcast, The Diary Of A CEO, a16z, Andrej Karpathy
+- **YouTube**: Andrej Karpathy, Alex Hormozi, Ali Abdaal, etc.
+- **Articles**: Dan Koe, AI 产品经典, KUNGFU.AI, Roman Pichler
+- **Official Docs**: Claude Code, OpenAI
+
+### Usage
+
+1. **Add Content**: Send links to AI assistant for summarization
+2. **Search Content**: Use `grep` or Obsidian built-in search
+3. **View Content**: Open notes in Obsidian
+
+### Changelog
+
+- **2026-03-16**: Added Ilya Sutskever, Andrej Karpathy podcast translations
+- **2026-03-13**: Added a16z Top 100 Gen AI Consumer Apps article
+- **2026-03-12**: Added VibeCoding guide, more Lex Fridman podcast summaries
+- **2026-03-11**: Added The Diary Of A CEO podcast series, Dan Koe HUMAN 3.0
 
 ---
 
-## 如何使用
+### 中文
 
-1. **添加内容**：发送链接给 AI 助手进行总结
-2. **查看内容**：在 Obsidian 中打开笔记
-3. **持续更新**：内容不断增加
+### 目录结构
+
+| 目录 | 内容 | 笔记数 |
+|------|------|--------|
+| `podcast/` | 播客总结（Lex Fridman, a16z, Andrej Karpathy 等） | 4 |
+| `youtube/` | YouTube 视频总结 | 10 |
+| `claude/` | Claude AI 官方教程和文档 | 14 |
+| `dankoe/` | Dan Koe 博客文章翻译 | 3 |
+| `ai-product-classics/` | AI 产品经典文章合集 | 3 |
+| `vide coding/` | AI 编程/产品开发相关文章 | 7 |
+| `learning-skills/` | 学习技巧和方法文章 | 4 |
+| `openai/` | OpenAI/Y Combinator 创业课程 | 3 |
+| `The Diary Of A CEO/` | The Diary Of A CEO 播客总结 | 5 |
+| `x article/` | Twitter/X 文章翻译 | 2 |
+| `prompt engine/` | 提示词和 Prompt 模板 | 2 |
+| `AI Taste/` | AI 精选文章 | 3 |
+| `.obsidian/` | Obsidian 配置目录 | - |
+
+### 内容统计
+
+- **总笔记数**: 63 篇
+- **语言**: 中英双语对照为主
+
+#### 核心内容来源
+
+- **播客**: Lex Fridman Podcast, The Diary Of A CEO, a16z, Andrej Karpathy
+- **YouTube**: Andrej Karpathy, Alex Hormozi, Ali Abdaal 等
+- **文章**: Dan Koe, AI 产品经典, KUNGFU.AI, Roman Pichler
+- **官方文档**: Claude Code, OpenAI
+
+### 使用方式
+
+1. **添加内容**: 发送链接给 AI 助手进行总结
+2. **搜索内容**: 使用 `grep` 或 Obsidian 内置搜索
+3. **查看内容**: 在 Obsidian 中打开笔记
+
+### 更新日志
+
+- **2026-03-16**: 新增 Ilya Sutskever、Andrej Karpathy 播客翻译
+- **2026-03-13**: 新增 a16z Top 100 Gen AI Consumer Apps 文章
+- **2026-03-12**: 新增 VibeCoding 指南、更多 Lex Fridman 播客总结
+- **2026-03-11**: 新增 The Diary Of A CEO 播客系列、Dan Koe HUMAN 3.0
+
+<!-- tabs:end -->
 
 ---
 
-## 笔记格式
-
-- 中英双语对照为主
-- 包含：核心观点、关键要点、详细解释
-- 结构化输出，便于查阅
-
----
-
-## 更新日志
-
-- **2026-03-11**: 新增 The Diary Of A CEO 播客系列、更多 AI 产品文章
-- **2026-03-10**: 新增 Dan Koe HUMAN 3.0 系列
-- **2026-03-**: 持续添加中...
-
----
-
-*由 AI 助手 gmg-clawbot 🦞 整理*
+*Organized by AI Assistant gmg-clawbot 🦞*  
+*Last updated: 2026-03-16*
