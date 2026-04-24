@@ -1,0 +1,1571 @@
+---
+title: "深入了解克劳德·科德：当今和未来人工智能代理系统的设计空间 --- Dive into Claude Code: The Design Space of Today’s and Future AI Agent Systems"
+source: "https://arxiv.org/html/2604.14228v1"
+author:
+published:
+created: 2026-04-20
+description:
+tags:
+- "clippings"
+
+
+## Dive into Claude Code: The Design Space of Today’s and Future AI Agent Systems
+深入了解克劳德·科德：当今和未来人工智能代理系统的设计空间
+
+Jiacheng Liu    Xiaohan Zhao    Xinyi Shang    Zhiqiang Shen \[ \[ [Zhiqiang.Shen@mbzuai.ac.ae](https://arxiv.org/html/2604.14228v1/mailto:Zhiqiang.Shen@mbzuai.ac.ae)
+
+###### Abstract
+抽象的
+
+Claude Code is an agentic coding tool that can run shell commands, edit files, and call external services on behalf of the user. This study describes its comprehensive architecture by analyzing the publicly available TypeScript source code 
+此外，我们还将其与 OpenClaw 进行了比较。OpenClaw 是一个独立的开源 AI 代理系统，它在不同的部署环境下回答了许多相同的设计问题。我们的分析确定了五项驱动该架构的人类价值观、理念和需求（人类决策权、安全保障、可靠执行、能力增强和情境适应性），并通过十三项设计原则追溯了它们与具体实现选择的关联。系统的核心是一个简单的 while 循环，它调用模型、运行工具并重复执行。然而，大部分代码都位于围绕该循环的各个系统中：一个具有七种模式和基于机器学习的分类器的权限系统、一个用于情境管理的五层压缩管道、四种可扩展机制（MCP、插件、技能和钩子）、一个子代理委托和编排机制，以及一个面向追加的会话存储。与多渠道个人助理网关 OpenClaw 的比较表明，同样的重复性设计问题在部署环境变化时会产生不同的架构解决方案：从逐操作安全评估到边界级访问控制，从单个 CLI 循环到网关控制平面内的嵌入式运行时，以及从上下文窗口扩展到网关范围的功能注册。最后，我们基于近期的实证、架构和政策文献，确定了未来代理系统的六个开放设计方向。我们的 GitHub 地址为： [https://github.com/VILA-Lab/Dive-into-Claude-Code](https://github.com/VILA-Lab/Dive-into-Claude-Code) 。
+Claude Code 是一款代理式编码工具，可以代表用户运行 shell 命令、编辑文件并调用外部服务。本研究通过分析公开的 TypeScript 源代码 
+
+Zhiqiang Shen ()
+
+## 1 Introduction 1
+引言
+
+AI-assisted software development has evolved from autocomplete-style tools such as GitHub Copilot (chen2021evaluating), through IDE-integrated assistants like Cursor (cursor2026official), to fully agentic systems that autonomously plan multi-step modifications, execute shell commands, read and write files, and iterate on their own outputs. Claude Code (anthropic2026claudecode) is an agentic coding tool released by Anthropic (anthropic2026github). Its official documentation describes an “agentic loop” that plans and executes actions toward accomplishing a goal and can call tools, evaluate results, and continue until the task is done 
+这种从建议到自主行动的转变引入了架构方面的要求，而这些要求在基于补全的工具中并不存在。这些要求定义了一个设计空间，其中包含一系列反复出现的问题，涵盖安全性、上下文管理、可扩展性和委托等主题，每个编码代理都必须应对这些问题。本研究通过对 Claude Code 进行源代码级分析，展示了一个生产系统如何回答这些问题。
+AI 辅助软件开发已经从 GitHub Copilot （ chen2021evaluating ） 等自动补全工具，发展到 Cursor （ cursor2026official ） 等集成在 IDE 中的助手，最终演变为能够自主规划多步骤修改、执行 shell 命令、读写文件并迭代自身输出的全智能体系统。Claude Code （ anthropic2026claudecode ） 是由 Anthropic （ anthropic2026github ） 发布的一款智能体编码工具。其官方文档描述了一个“智能体循环”，该循环规划并执行操作以达成目标，并且可以调用工具、评估结果，并持续执行直至任务完成 
+
+Despite growing adoption, Anthropic publishes user-facing documentation for Claude Code but not detailed architectural descriptions. This study uses source code analysis to describe architectural design decisions. Anthropic’s internal survey of 132 engineers and researchers (anthropic2025internal) reports that about 27% of Claude Code-assisted tasks were work that would not have been attempted without the tool, suggesting that the architecture enables qualitatively new workflows rather than merely accelerating existing ones.
+尽管 Claude Code 的应用日益广泛，Anthropic 公司发布了面向用户的文档，但并未提供详细的架构描述。本研究采用源代码分析方法来阐述架构设计决策。Anthropic 公司对 132 名工程师和研究人员进行的内部调查 （ anthropic2025internal ） 显示，约 27%的 Claude Code 辅助完成的任务，如果没有该工具就不会尝试完成，这表明该架构能够实现全新的工作流程，而不仅仅是加速现有工作流程。
+
+In this work, we first identify five human values/philosophies and thirteen design principles that motivate the architecture (Section˜2), then organize the analysis in three parts:
+在这项工作中，我们首先确定了五项人类价值观/哲学和十三项设计原则，这些价值观/哲学和原则是建筑设计的动力（ 第 2 节 ），然后将分析分为三个部分：
+
+The core agent loop is a while-true cycle with state management. The surrounding subsystems for safety, extensibility, context management, delegation, and persistence make up the bulk of the implementation. Source-level analysis 
+核心代理循环是一个带有状态管理的 while-true 循环。用于安全性、可扩展性、上下文管理、委托和持久化的周边子系统构成了实现的主体。源代码级分析 
+这使我们能够直接从系统本身识别设计选择、子系统边界和实现权衡，而不是仅仅从产品描述中推断它们。
+
+#### Running example.
+运行示例。
+
+To keep the architecture concrete, we trace the task “Fix the failing test in auth.test.ts” through Sections˜3, 4, 5, 6, 7, 8 and 9. This example illustrates how a seemingly simple user request activates multiple architectural layers, including tool invocation, permission checks, context selection, iterative repair, delegation, and session persistence.
+为了使架构更加具体，我们将“修复 auth.test.ts 中失败的测试”这一任务追溯到第 3、4、5、6、7、8 和 9 节 。 此示例说明了看似简单的用户请求如何激活多个架构层，包括工具调用、权限检查、 上下文选择、迭代修复、委托和会话持久化。
+
+#### Paper organization.
+文件整理。
+
+Section˜2 identifies the human values and design principles that motivate the architecture. Section˜3 introduces the high-level architecture and the design questions it answers. Sections˜4, 5, 6, 7, 8 and 9 each analyze a major subsystem’s design choices. Section˜10 contrasts the analysis with OpenClaw, Section˜11 provides discussion, and Section˜12 surveys open questions for future agent systems. Sections˜13 and 14 then cover related work and conclusions. Section˜16 describes the evidence base and methodology.
+第 2 节阐述了驱动该架构的人类价值观和设计原则 。 第 3 节介绍了高层架构及其所解答的设计问题。第 4、5、6、7、8 和 9 节分别分析了主要子系统的设计选择。 第 10 节将该分析与 OpenClaw 进行了对比， 第 11 节进行了讨论， 第 12 节探讨了未来智能体系统尚待解决的问题。 第 13 和 14 节回顾了相关工作并得出结论。 第 16 节描述了证据基础和方法论。
+
+## 2 Design Philosophies, Design Principles and Architectural Motivations 2
+设计理念、设计原则和建筑动机
+
+Production coding agents are built by humans, for humans, and the architectural decisions they embed reflect what their creators believe matters. This section identifies the human values that motivate Claude Code’s design, traces them through recurring design principles, and frames the design-space questions that organize the analysis in Sections˜3, 4, 5, 6, 7, 8 and 9.
+生产编码代理由人构建，服务于人，其嵌入的架构决策反映了其创建者认为重要的因素。本节阐述了驱动 Claude Code 设计的人类价值观，追溯了这些价值观在反复出现的设计原则中的体现，并构建了设计空间问题框架 ， 这些问题将组织第 3、4、5、6、7、8 和 9 节中的分析 。
+
+Anthropic’s framework for safe agents states a central tension: “Agents must be able to work autonomously; their independent operation is exactly what makes them valuable. But humans should retain control over how their goals are pursued” (anthropic2025agents). Claude’s Constitution resolves this not through rigid decision procedures but by cultivating “good judgment and sound values that can be applied contextually” (anthropic2026constitution). These commitments, together with empirical findings about how developers actually use the tool (anthropic2025internal; anthropic2026autonomy), point to five human values that shape the architecture.
+人格心理学（Anthropic）的安全智能体框架指出了一个核心矛盾：“智能体必须能够自主工作；它们的独立运作正是其价值所在。但人类应该保留对目标实现方式的控制权” （ anthropic2025agents ） 。克劳德的《宪法》并非通过僵化的决策程序来解决这一矛盾，而是通过培养“能够根据具体情况应用的良好判断力和健全价值观” （ anthropic2026constitution ） 。这些承诺，以及关于开发者如何实际使用该工具的实证研究结果 （ anthropic2025internal ； anthropic2026autonomy ） ，共同指向了塑造该架构的五项人类价值观。
+
+### 2.1 Five Values and Philosophies 2.1
+五项价值观和理念
+
+#### Human Decision Authority.
+人类决策权。
+
+The human retains ultimate decision authority over what the system does, organized through a principal hierarchy (Anthropic, then operators, then users) that formalizes who holds authority over what (anthropic2026constitution). The system is designed so that humans can exercise informed control: they can observe actions in real time, approve or reject proposed operations, interrupt compatible in-progress operations, and audit after the fact. When Anthropic found that users approve 93% of permission prompts (anthropic2026automode), the response was not to add more warnings but to restructure the problem: defined boundaries (sandboxing, auto-mode classifiers) within which the agent can work freely, rather than per-action approvals that users stop reviewing once habituated (anthropic2025sandboxing).
+人类对系统运行拥有最终决策权，这种决策权通过一个主要层级结构（Anthropic、操作员、用户）来组织，该结构正式规定了谁拥有哪些权限 （ anthropic2026constitution ） 。系统设计旨在使人类能够进行知情控制：他们可以实时观察操作，批准或拒绝提议的操作，中断兼容的正在进行的操作，并在事后进行审核。当 Anthropic 发现用户批准了 93% 的权限提示时 （ anthropic2026automode ） ，其应对措施并非增加更多警告，而是重构问题：定义代理可以自由工作的边界（沙盒、自动模式分类器），而不是对每个操作进行审批，而用户一旦习惯了这种审批方式便不再审查 （ anthropic2025sandboxing ） 。
+
+#### Safety, Security, and Privacy.
+安全、保障和隐私。
+
+The system protects humans, their code, their data, and their infrastructure from harm, even when the human is inattentive or makes mistakes. This is distinct from Human Decision Authority: where authority is about the human’s *power to choose*, safety is about the system’s *obligation to protect even when that power lapses*. Anthropic’s safe-agents framework separately identifies securing agent interactions and protecting privacy across extended interactions as core commitments (anthropic2025agents). The auto-mode threat model (anthropic2026automode) explicitly targets four risk categories: overeager behavior, honest mistakes, prompt injection, and model misalignment.
+该系统能够保护人类、他们的代码、数据和基础设施免受伤害，即使人类疏忽或犯错也不例外。这与人类决策权有所不同：决策权是指人类的 *选择权* ，而安全是指 *即使这种选择权失效，系统也有义务提供保护* 。Anthropic 的安全代理框架明确指出，确保代理交互安全和保护扩展交互中的隐私是其核心承诺 （ anthropic2025agents ） 。自动模式威胁模型 （ anthropic2026automode ） 明确针对四类风险：过度积极的行为、诚实的错误、快速注入和模型错位。
+
+#### Reliable Execution.
+可靠执行。
+
+The agent does what the human actually meant, stays coherent over time, and supports verifying its work before declaring success. This value spans both single-turn correctness (did it interpret the request faithfully?) and long-horizon dependability (does it remain coherent across context window boundaries, session resumption, and multi-agent delegation?). Anthropic’s product documentation (anthropic2026howworks) describes a three-phase loop that the agent repeats until the task is complete: gather context, take action, and verify results. The agent design guidance (anthropic2024effective) further emphasizes that “ground truth from the environment” at each step assesses progress. The harness-design guidance (anthropic2026harness) likewise notes that “agents tend to respond by confidently praising the work,” even when quality is mediocre, motivating separation of generation from evaluation.
+该智能体能够准确理解人类的意图，保持指令的一致性，并在宣布成功前验证其工作。这一价值体现在两个方面：一是单回合正确性（是否忠实地理解了请求？），二是长期可靠性（是否在上下文窗口边界、会话恢复和多智能体委托的情况下仍能保持一致性？）。Anthropic 的产品文档 （ anthropic2026howworks ） 描述了一个智能体重复执行的三阶段循环，直至任务完成：收集上下文信息、执行操作和验证结果。智能体设计指南 （ anthropic2024effective ） 进一步强调，每个步骤中的“来自环境的真实数据”都用于评估进度。同样，组件设计指南 （ anthropic2026harness ） 也指出，“即使质量一般，智能体也倾向于自信地称赞工作”，因此需要将生成过程与评估过程分开。
+
+#### Capability Amplification.
+能力增强。
+
+The system materially increases what the human can accomplish per unit of effort and cost. Anthropic’s internal survey (anthropic2025internal), discussed in Section˜1, suggests that the architecture enables qualitatively new workflows, not merely faster existing ones: approximately 27% of tasks represented work that would not otherwise have been attempted. The system is described by its creators as “a Unix utility rather than a traditional product,” built from the smallest building blocks that are “useful, understandable, and extensible” (cherny2025latentspace). The architecture invests in deterministic infrastructure (context management, tool routing, recovery) rather than decision scaffolding (explicit planners or state graphs), on the premise that increasingly capable models benefit more from a rich operational environment than from frameworks that constrain their choices.
+该系统显著提高了人类在单位努力和成本下所能取得的成就。Anthropic 的内部调查 （ anthropic2025internal ） 对此进行了讨论。 第 1 节表明，该架构能够实现全新的工作流程，而不仅仅是加快现有工作流程的速度：约 27% 的任务是原本不会尝试完成的工作。该系统被其创建者描述为“一个 Unix 实用程序，而非传统产品”，它由“实用、易懂且可扩展”的最小构建模块组成 （ cherny2025latentspace ） 。该架构着重于确定性基础设施（上下文管理、工具路由、恢复），而非决策框架（显式规划器或状态图），其前提是，功能日益强大的模型更能从丰富的运行环境中获益，而不是从限制其选择的框架中获益。
+
+#### Contextual Adaptability.
+情境适应性。
+
+The system fits the user’s specific context (their project, tools, conventions, and skill level) and the relationship improves over time. The extension architecture (CLAUDE.md, skills, MCP, hooks, plugins) provides configurability at multiple levels of context cost (Sections˜6 and 7). Longitudinal data (anthropic2026autonomy) shows that the human-agent relationship evolves: auto-approve rates increase from approximately 20% at fewer than 50 sessions to over 40% by 750 sessions. This pattern, described as autonomy that is “co-constructed by the model, the user, and the product,” means the system is designed for trust trajectories rather than fixed trust states. MCP’s donation to the Linux Foundation’s Agentic AI Foundation (linuxfoundation2025aaif) reflects the ecosystem dimension of this value.
+该系统能够适应用户的特定情境（包括他们的项目、工具、惯例和技能水平），并且随着时间的推移，这种关系会不断改善。扩展架构（CLAUDE.md、技能、MCP、钩子、插件）提供了多层次的情境成本配置（ 参见第 6 节和第 7 节）。纵向数据 （ anthropic2026autonomy ） 表明，人机关系会不断演变：自动批准率从不到 50 次会话时的约 20%提高到 750 次会话时的 40%以上。这种被描述为“由模型、用户和产品共同构建”的自主性模式，意味着该系统旨在构建信任轨迹，而非固定的信任状态。MCP 向 Linux 基金会的 Agentic AI 基金会 （ linuxfoundation2025aaif ） 的捐赠体现了这一价值的生态系统维度。
+
+### 2.2 Design Principles 2.2
+设计原则
+
+These values are operationalized through thirteen design principles, each answering a recurring question that production coding agents must resolve. Table˜1 summarizes the principles; subsequent sections (Section˜3–Section˜9) trace each through specific implementation choices.
+这些价值观通过十三项设计原则得以实现，每项原则都回答了生产编码人员必须解决的一个反复出现的问题。 表 1 总结了这些原则；后续章节（ 第 3 节至第 9 节 ）将逐一阐述每项原则的具体实现选择。
+
+Table 1: Design principles, the values they serve, and the design-space question each answers. Principles map to multiple values; implementations appear in the sections indicated.
+表 1： 设计原则、它们所服务的价值以及它们各自回答的设计空间问题。原则对应多个价值；具体实现方式请参见相应章节。
+
+| Principle 原则 | Values Served 所服务的价值观 | Design Question 设计问题 | Sections 章节 |
+| Deny-first with human escalation   先否认，再逐步升级人为干预 | Authority, Safety 权威、安全 | Should unrecognized actions be allowed, blocked, or escalated to the human?   对于未被识别的行为，应该允许、阻止还是上报给人工处理？ | 5, 8, 9   5、8、9 |
+| Graduated trust spectrum 渐进式信任谱 | Authority, Adaptability 权威性、适应性 | Fixed permission level, or a spectrum users traverse over time?   权限级别是固定的，还是用户随着时间推移而逐步获得的权限范围？ | 5 |
+| Defense in depth with layered mechanisms   采用多层机制的纵深防御 | Safety, Authority, Reliability   安全性、权威性、可靠性 | Single safety boundary, or multiple overlapping ones using different techniques?   单一安全边界，还是采用不同技术设置的多个重叠安全边界？ | 3, 5   3、5 |
+| Externalized programmable policy   外部可编程策略 | Safety, Authority, Adaptability   安全、权威、适应性 | Hardcoded policy, or externalized configs with lifecycle hooks?   是采用硬编码策略，还是采用带有生命周期钩子的外部配置？ | 5, 6   5、6 |
+| Context as scarce resource with progressive management   背景作为一种稀缺资源，需要逐步管理 | Reliability, Capability 可靠性、能力 | What is the binding resource constraint, and how to manage it: single-pass truncation or graduated pipeline?   什么是绑定资源约束，以及如何管理它：单次截断还是分级流水线？ | 4, 6, 7, 8   4、6、7、8 |
+| Append-only durable state   仅追加持久状态 | Reliability, Authority 可靠性、权威性 | Mutable state, checkpoint snapshots, or append-only logs?   可变状态、检查点快照还是仅追加日志？ | 4, 9   4、9 |
+| Minimal scaffolding, maximal operational harness   最少的脚手架，最大的作业安全带 | Capability, Reliability 能力、可靠性 | Invest in scaffolding-side reasoning, or operational infrastructure that lets the model reason freely?   投资于脚手架侧的推理，或者让模型能够自由推理的运行基础设施？ | 3, 4   3、4 |
+| Values over rules 价值观高于规则 | Capability, Authority 能力、权威 | Rigid decision procedures, or contextual judgment backed by deterministic guardrails?   僵化的决策程序，还是以确定性规则为支撑的情境判断？ | 3, 5, 7   3、5、7 |
+| Composable multi-mechanism extensibility   可组合的多机制可扩展性 | Capability, Adaptability 能力、适应性 | One unified extension API, or layered mechanisms at different context costs?   一个统一的扩展 API，还是采用不同上下文成本的分层机制？ | 6 |
+| Reversibility-weighted risk assessment   可逆性加权风险评估 | Capability, Safety 能力、安全性 | Same oversight for all actions, or lighter for reversible and read-only ones?   所有操作都适用相同的监管标准，还是对可逆操作和只读操作放宽监管？ | 4, 5, 8   4、5、8 |
+| Transparent file-based configuration and memory   透明的基于文件的配置和内存 | Adaptability, Authority 适应能力、权威 | Opaque database, embedding-based retrieval, or user-visible version-controllable files?   不透明数据库、基于嵌入的检索，还是用户可见的版本可控文件？ | 7 |
+| Isolated subagent boundaries   隔离的子代理边界 | Reliability, Safety, Capability   可靠性、安全性、能力 | Subagents share the parent’s context and permissions, or operate in isolation?   次级代理与父代理共享上下文和权限，还是独立运行？ | 8 |
+| Graceful recovery and resilience   优雅的恢复和韧性 | Reliability, Capability 可靠性、能力 | Fail hard on errors, or silently recover and reserve human attention for unrecoverable situations?   是严厉惩罚错误，还是默默补救，把人力留给无法挽回的情况？ | 4, 5   4、5 |
+
+These principles can be read against three major alternative design families. First, *rule-based orchestration*: frameworks such as LangGraph (langgraph2024) encode decision logic as explicit state graphs with typed edges, choosing scaffolding over minimal harness. Second, *container-isolated execution*: SWE-Agent and OpenHands (yang2024sweagent; wang2024openhands) rely on Docker isolation rather than layered policy enforcement. Third, *version-control-as-safety*: tools like Aider (gauthier2024aider) use Git rollback as the primary safety mechanism rather than deny-first evaluation. Claude Code’s principle set is distinctive in combining minimal decision scaffolding with layered policy enforcement, values-based judgment with deny-first defaults, and progressive context management with composable extensibility.
+这些原则可以与三大主要替代设计方案进行比较。首先， *基于规则的编排* ：诸如 LangGraph ( langgraph2024 ) 之类的框架将决策逻辑编码为带有类型化边的显式状态图，选择搭建脚手架而非最小化框架。其次， *容器隔离执行* ：SWE-Agent 和 OpenHands ( yang2024sweagent; wang2024openhands ) 依赖于 Docker 隔离而非分层策略执行。第三， *版本控制即安全* ：诸如 Aider ( gauthier2024aider ) 之类的工具使用 Git 回滚作为主要安全机制，而非先拒绝后评估。Claude Code 的原则集独具特色，它将最小化的决策脚手架与分层策略执行、基于值的判断与先拒绝后默认值以及渐进式上下文管理与可组合的可扩展性相结合。
+
+### 2.3 From Values to Architecture 2.3
+从价值观到架构
+
+Each value traces through its principles to specific architectural decisions:
+每一种价值观都通过其原则追溯到具体的架构决策：
+
+- Human Decision Authority motivates deny-first evaluation, the graduated trust spectrum, append-only state (auditable history), externalized programmable policy, and values-over-rules (Sections˜5, 9, 6 and 7).
+
+- Reliable Execution motivates context-as-scarce-resource, append-only durable state, graceful recovery, isolated subagent boundaries, and defense in depth (Sections˜4, 7, 8 and 9).
+人类决策权威促使人们采用先拒绝后评估、分级信任谱、仅附加状态（可审计历史）、外部可编程策略以及价值高于规则（第 5、9、6 和 7 节 ） 。
+- 安全、保障和隐私促使人们采取纵深防御、拒绝优先默认、可逆性加权评估、外部化政策和隔离子代理边界（ 第 5 节和第 8 节）。
+
+- Capability Amplification motivates minimal scaffolding, composable extensibility, reversibility-weighted risk, context management, and graceful recovery (Sections˜4, 6 and 5).
+可靠的执行促使上下文成为稀缺资源、仅追加持久状态、优雅恢复、隔离子代理边界和纵深防御（第 4、7、8 和 9 节 ） 。
+
+- Contextual Adaptability motivates transparent file-based memory, composable extensibility, the graduated trust spectrum, and externalized programmable policy (Sections˜7, 6 and 5).
+能力增强促使人们采用最小的脚手架、可组合的可扩展性、可逆性加权风险、上下文管理和优雅恢复（ 第 4、6 和 5 节 ） 。
+
+上下文适应性促使人们采用透明的基于文件的内存、可组合的可扩展性、渐进式信任谱系和外部化的可编程策略（第 7、6 和 5 节 ） 。
+
+These mappings also reveal what the architecture does *not* do: it does not impose explicit planning graphs on the model’s reasoning, does not provide a single unified extension mechanism, and does not restore all session-scoped trust-related state across resume. These absences are consistent with the principle set above.
+这些映射关系也揭示了该架构的 *不足* 之处：它没有对模型的推理施加显式的规划图，没有提供统一的扩展机制，也没有在恢复过程中恢复所有会话范围内的信任相关状态。这些不足之处与上述原则相符。
+
+### 2.4 An Evaluative Lens: Long-term Capability Preservation 2.4
+评估视角：长期能力保持
+
+The five values above describe what the architecture is designed to serve. This paper also applies a sixth concern, whether the architecture preserves long-term human capability, as an evaluative lens. This concern is real: Anthropic’s own study of 132 engineers and researchers (anthropic2025internal) documents a “paradox of supervision” in which overreliance on AI risks atrophying the skills needed to supervise it, and independent research (shen2026skill) finds that developers in AI-assisted conditions score 17% lower on comprehension tests. However, this concern is not prominently reflected as a design driver in the architecture or in Anthropic’s stated design values. We therefore treat it not as a co-equal value but as a cross-cutting concern: a question applied across all five values in Section˜11, asking whether short-term amplification comes at the cost of long-term human understanding, codebase coherence, and the developer pipeline.
+以上五个价值观描述了该架构旨在服务的目标。本文还引入了第六个考量因素，即该架构是否能够维护人类的长期能力，并将其作为评估视角。这一考量并非空穴来风：Anthropic 对 132 位工程师和研究人员进行的一项研究 （ anthropic2025internal ） 记录了一个“监督悖论”，即过度依赖人工智能可能会导致监督人工智能所需的技能退化；此外，独立研究 （ shen2026skill ） 也发现，在人工智能辅助环境下工作的开发人员在理解测试中的得分比单独工作时低 17%。然而，这一考量并未在架构设计或 Anthropic 所声明的设计价值观中得到充分体现。因此，我们并非将其视为同等重要的价值观，而是将其视为一个贯穿所有五个价值观的考量因素：在第 11 节中，我们将探讨一个问题，即短期性能的提升是否会以牺牲人类的长期理解力、代码库的一致性以及开发人员的工作流程为代价。
+
+![Refer to caption](https://arxiv.org/html/2604.14228v1/x1.png)
+
+Figure 1: High-level system structure of Claude Code. The system decomposes into seven functional components: user, interfaces, the agent loop, a permission system, tools, state & persistence, and an execution environment. All entry surfaces converge on the same agent loop.
+图 1 ： Claude Code 的高级系统结构。该系统分解为七个功能组件：用户、界面、代理循环、权限系统、工具、状态与持久化以及执行环境。所有入口点都汇聚到同一个代理循环。
+
+## 3 Architecture Overview 3
+架构概述
+
+Building a production coding agent requires answering several recurring design questions: where should reasoning live, how many execution engines are needed, what safety posture to adopt, and what resource to treat as the binding constraint. Claude Code’s architecture can be read as one set of answers to these questions. At the implementation level, the system has seven components connected by a main data flow: a user submits a prompt through one of several interfaces, which feeds into a shared agent loop. The agent loop assembles context, calls the Claude model, receives responses that may include tool-use requests, routes those requests through a permission system, and dispatches approved actions to concrete tools that interact with the execution environment. Throughout this process, state and persistence mechanisms record the conversation transcript, manage session identity, and support resume, fork, and rewind operations.
+构建生产级编码代理需要回答几个反复出现的设计问题：推理功能应该放在哪里？需要多少个执行引擎？采用何种安全策略？以及将哪种资源视为绑定约束？Claude Code 的架构可以理解为这些问题的答案之一。在实现层面，该系统由七个组件构成，并通过一条主数据流连接：用户通过多个接口之一提交提示，这些提示会进入一个共享的代理循环。代理循环会构建上下文，调用 Claude 模型，接收可能包含工具使用请求的响应，通过权限系统路由这些请求，并将已批准的操作分发给与执行环境交互的具体工具。在整个过程中，状态和持久化机制会记录对话记录、管理会话标识，并支持恢复、分支和回滚操作。
+
+### 3.1 Design Questions and Running Example 3.1
+设计问题和运行示例
+
+The description is organized around four design questions that recur across production coding agents, each grounding one or more of the design principles identified in Table˜1. Each question is introduced here with Claude Code’s answer, a note on plausible alternatives, and then demonstrated progressively through Sections˜4, 5, 6, 7, 8 and 9.
+该描述围绕四个在生产编码代理中反复出现的设计问题展开，每个问题都基于表 ˜ 1 中确定的一个或多个设计原则。每个问题都以 Claude Code 的答案、关于合理替代方案的说明以及第 4、5、6、7、8 和 9 节逐步演示的方式进行介绍。
+
+#### Where does reasoning live?
+理性存在于何处？
+
+In Claude Code, the model reasons about what to do; the harness is responsible for executing actions. The model emits tool\_use blocks as part of its response, and the harness parses them, checks permissions, dispatches them to tool implementations, and collects results (query.ts). The model never directly accesses the filesystem, runs shell commands, or makes network requests. This separation has a security consequence: because reasoning and enforcement occupy separate code paths, a compromised or adversarially manipulated model cannot override the sandboxing, permission checks, or deny-first rules implemented in the harness. The model’s only interface to the outside world is the structured tool\_use protocol, which the harness validates before execution. Community analysis of the extracted source estimates that only about 1.6% of Claude Code’s codebase constitutes AI decision logic, with the remaining 98.4% being operational infrastructure, a ratio that illustrates how thin the core agent reasoning layer is. Alternative designs invest more heavily in scaffolding-side reasoning: Devin maintains explicit planning and task-tracking structures, while LangGraph (langgraph2024) routes control flow through developer-defined state graphs.
+在 Claude Code 中，模型负责推理下一步行动；而框架则负责执行具体操作。模型会在其响应中发出 tool\_use 代码块，框架会解析这些代码块，检查权限，将其分发给相应的工具实现，并收集结果（ query.ts ）。模型从不直接访问文件系统、运行 shell 命令或发起网络请求。这种分离带来了安全隐患：由于推理和执行分别位于不同的代码路径，即使模型遭到入侵或恶意篡改，也无法绕过框架中实现的沙箱机制、权限检查或拒绝优先规则。模型与外部世界的唯一接口是结构化的 tool\_use 协议，框架会在执行前对其进行验证。社区对提取的源代码进行分析后发现，Claude Code 代码库中只有约 1.6% 是 AI 决策逻辑，其余 98.4% 是运行基础设施，这一比例表明其核心代理推理层非常薄弱。其他设计方案更侧重于脚手架方面的推理：Devin 维护明确的规划和任务跟踪结构，而 LangGraph ( langgraph2024 ) 通过开发者定义的状态图路由控制流。
+
+#### How many execution engines?
+有多少个执行引擎？
+
+Claude Code uses a single queryLoop() function that executes regardless of whether the user is interacting through an interactive terminal, a headless CLI invocation, the Agent SDK, or an IDE integration (query.ts). Only the rendering and user-interaction layer varies. Other systems use mode-specific engines: for example, an IDE integration may follow a different code path than a CLI tool, trading uniformity for surface-specific optimization.
+Claude Code 使用一个统一的 queryLoop() 函数，无论用户是通过交互式终端、无头 CLI 调用、Agent SDK 还是 IDE 集成进行交互（ query.ts ），该函数都会执行。只有渲染层和用户交互层有所不同。其他系统则使用特定于模式的引擎：例如，IDE 集成可能遵循与 CLI 工具不同的代码路径，以牺牲统一性为代价来换取针对特定界面的优化。
+
+#### What is the default safety posture?
+默认的安全姿势是什么？
+
+Claude Code’s default safety posture is deny-first with human escalation: deny rules override ask rules override allow rules, and unrecognized actions are escalated to the user rather than allowed silently (permissions.ts). Multiple independent safety layers (permission rules, PreToolUse hooks, the auto-mode classifier when enabled, and optional shell sandboxing) apply in parallel, so any one can block an action (Section˜5). This combines the *deny-first with human escalation* and *defense in depth with layered mechanisms* principles from Table˜1. Alternative approaches shift the trust boundary elsewhere: SWE-Agent and OpenHands (yang2024sweagent; wang2024openhands) rely on container-based isolation to contain arbitrary execution, while Aider (gauthier2024aider) uses git-based rollback as its primary safety net.
+Claude Code 的默认安全策略是先拒绝后人工升级：拒绝规则优先于请求规则，请求规则优先于允许规则，并且未识别的操作会被升级到用户权限，而不是静默允许（ permissions.ts ）。多个独立的安全层（权限规则、PreToolUse 钩子、启用时的自动模式分类器以及可选的 shell 沙箱）并行应用，因此任何一层都可以阻止操作（ 第 5 节 ）。这结合了 *先拒绝后人工升级* 和 *纵深防御以及* 表 1 中分层机制的原则。其他方法将信任边界转移到其他地方：SWE-Agent 和 OpenHands （ yang2024sweagent ； wang2024openhands ） 依赖于基于容器的隔离来阻止任意执行，而 Aider （ gauthier2024aider ） 则使用基于 Git 的回滚作为其主要安全网。
+
+#### What is the binding resource constraint?
+什么是约束资源限制？
+
+In Claude Code, the context window (200K for older models, 1M for the Claude 4.6 series) is the binding resource constraint. Five distinct context-reduction strategies execute before every model call (query.ts), and several other subsystem decisions (lazy loading of instructions, deferred tool schemas, summary-only subagent returns) exist to limit context consumption (Section˜7). The five-layer pipeline exists because no single compaction strategy addresses all types of context pressure. Budget reduction targets individual tool outputs that overflow size limits. Snip handles temporal depth. Microcompact reacts to cache overhead. Context collapse manages very long histories. Auto-compact performs semantic compression as a last resort. Each layer operates at a different cost-benefit tradeoff, and earlier, cheaper layers run before costlier ones. Alternative architectures treat other resources as the primary bottleneck, for instance compute budget (limiting the number of model calls or tool invocations) or working memory (maintaining an explicit scratchpad rather than relying on the conversation history).
+在 Claude Code 中，上下文窗口（旧模型为 200K，Claude 4.6 系列为 1M）是资源约束的关键所在。每次模型调用（ query.ts ）之前都会执行五种不同的上下文缩减策略，此外，还有其他几个子系统决策（指令延迟加载、延迟工具模式、仅返回摘要的子代理）用于限制上下文消耗（ 参见第 7 节 ）。之所以采用五层流水线，是因为没有单一的压缩策略能够应对所有类型的上下文压力。预算缩减针对超出大小限制的单个工具输出。Snip 处理时间深度。Microcompact 应对缓存开销。上下文折叠管理非常长的历史记录。Auto-compact 作为最后的手段执行语义压缩。每一层都以不同的成本效益进行权衡，较早、成本较低的层会在成本较高的层之前运行。其他架构则将其他资源视为主要瓶颈，例如计算预算（限制模型调用或工具调用的次数）或工作内存（维护显式暂存区而不是依赖会话历史记录）。
+
+#### Running example.
+运行示例。
+
+To ground these principles, we thread a single task through Sections˜3, 4, 5, 6, 7, 8 and 9: *“Fix the failing test in auth.test.ts.”* In this section the user submits the prompt through one of Claude Code’s interfaces. Subsequent sections trace the request through the query loop, permission gate, tool pool, context window, subagent delegation, and session persistence.
+为了更好地理解这些原则，我们以一个贯穿第 3、4、5、6、7、8 和 9 节的任务为例 ： *“修复 auth.test.ts 中失败的测试”。* 在本节中 ，用户通过 Claude Code 的某个接口提交请求。 后续章节将追踪请求在查询循环、权限门、工具池、上下文窗口、子代理委托和会话持久化过程中的流转过程。
+
+### 3.2 High-Level System Structure 3.2
+高层系统结构
+
+![Refer to caption](https://arxiv.org/html/2604.14228v1/x2.png)
+
+Figure 2: Runtime turn flow showing the end-to-end execution of a single agentic turn: user prompt enters through context assembly, the model is called, tool requests pass through the permission gate, tool results feed back into the loop, and compaction manages context pressure.
+图 2 ： 运行时轮次流程，显示单个代理轮次的端到端执行：用户提示通过上下文组装进入，模型被调用，工具请求通过权限门，工具结果反馈到循环中，压缩管理上下文压力。
+
+The seven-component model (Figure˜1) maps directly to source files:
+七组件模型（ 图 1 ）直接映射到源文件：
+
+1. User: Submits prompts, approves permissions, reviews output.
+
+2. Interfaces: Interactive CLI, headless CLI (claude -p), Agent SDK, and IDE/Desktop/Browser. All surfaces feed the same loop.
+用户 ：提交提示、批准权限、审核输出。
+
+接口 ：交互式命令行界面 (CLI)、无头命令行界面 ( claude -p )、代理 SDK 以及集成开发环境/桌面/浏览器。所有接口都服务于同一个循环。
+3. Agent loop: The iterative cycle of model call, tool dispatch, and result collection, implemented as the queryLoop() async generator in query.ts.
+
+代理循环 ：模型调用、工具调度和结果收集的迭代循环，在 query.ts 中实现为 queryLoop() 异步生成器。
+4. Permission system: Deny-first rule evaluation (permissions.ts), the auto-mode ML classifier, and hook-based interception (types/hooks.ts).
+
+权限系统 ：拒绝优先规则评估（ permissions.ts ）、自动模式 ML 分类器和基于钩子的拦截（ types/hooks.ts ）。
+5. Tools: Up to 54 built-in tools (19 unconditional, 35 conditional on feature flags and user type) assembled via assembleToolPool() (tools.ts), merged with MCP-provided tools. Plugins contribute indirectly through MCP servers and the skill/command registry.
+
+工具 ：最多内置 54 个工具（19 个无条件工具，35 个取决于功能标志和用户类型），通过 assembleToolPool() 函数 （ tools.ts ）组装，并与 MCP 提供的工具合并。插件通过 MCP 服务器和技能/命令注册表间接贡献。
+6. State & persistence: Mostly append-only JSONL session transcripts (sessionStorage.ts), global prompt history (history.ts), and subagent sidechain files.
+
+状态和持久性 ：主要是仅追加的 JSONL 会话记录（ sessionStorage.ts ）、全局提示历史记录（ history.ts ）和子代理侧链文件。
+7. Execution environment: Shell execution with optional sandboxing (shouldUseSandbox.ts), filesystem operations, web fetching, MCP server connections, and remote execution.
+
+执行环境 ：Shell 执行（可选沙箱，使用 shouldUseSandbox.ts ），文件系统操作，Web 获取，MCP 服务器连接和远程执行。
+
+The data flow follows a left-to-right spine: the user submits a request through an interface, which enters the agent loop. The loop proposes actions to the permission system; approved actions reach tools, which interact with the execution environment and return tool\_result messages back to the loop. State and persistence sit alongside the loop, recording transcripts and loading prior session data.
+数据流遵循从左到右的主干路径：用户通过界面提交请求，请求进入代理循环。循环向权限系统提出操作建议；获得批准的操作会传递给工具，工具与执行环境交互并将 tool\_result 消息返回给循环。状态和持久化机制与循环并行运行，负责记录会话记录和加载先前的会话数据。
+
+The application entry point main() in main.tsx initializes security settings (including NoDefaultCurrentDirectoryInExePath to prevent Windows PATH hijacking), registers signal handlers for graceful shutdown, and dispatches to the appropriate execution mode.
+main.tsx 中的应用程序入口点 main() 初始化安全设置（包括 NoDefaultCurrentDirectoryInExePath 以防止 Windows PATH 劫持），注册用于优雅关闭的信号处理程序，并分派到适当的执行模式。
+
+### 3.3 Layered Subsystem Decomposition 3.3
+分层子系统分解
+
+![Refer to caption](https://arxiv.org/html/2604.14228v1/x3.png)
+
+Figure 3: Expanded layered architecture showing five subsystem layers: surface (Interactive CLI, Headless CLI, Agent SDK, IDE/Desktop/Browser, UI/renderer), core (agent loop, compaction pipeline), safety/action (permission system incl. auto-mode classifier, hook pipeline, extensibility, built-in tools, MCP tools, shell sandbox, subagent spawning), state (context assembly, runtime state, session persistence, CLAUDE.md + memory, sidechain transcripts), and backend (execution backends, external resources).
+图 3 ： 扩展的分层架构，显示了五个子系统层：表面层（交互式 CLI、无头 CLI、代理 SDK、IDE/桌面/浏览器、UI/渲染器）、核心层（代理循环、压缩管道）、安全/操作层（权限系统，包括自动模式分类器、钩子管道、可扩展性、内置工具、MCP 工具、shell 沙箱、子代理生成）、状态层（上下文组装、运行时状态、会话持久性、CLAUDE.md + 内存、侧链记录）和后端层（执行后端、外部资源）。
+
+The five-layer decomposition (Figure˜3) expands the seven-component model into a finer-grained view, mapping each layer to specific source directories.
+五层分解（ 图 ˜ 3 ）将七组件模型扩展为更精细的视图，将每一层映射到特定的源目录。
+
+#### Surface layer (entry points and rendering).
+表面层（入口点和渲染）。
+
+The src/entrypoints/ directory contains startup paths, including the SDK entry with coreTypes.ts, controlSchemas.ts, and coreSchemas.ts. The src/screens/ directory composes full-screen layouts, and src/components/ provides terminal UI building blocks via the ink framework. The interactive CLI launches a terminal UI with real-time streaming, permission dialogs, and progress indicators. The headless CLI (claude -p) creates a QueryEngine instance for single-shot processing. The Agent SDK emits typed events via async generators.
+src/entrypoints/ 目录包含启动路径，其中包括 SDK 入口以及 coreTypes.ts 、 controlSchemas.ts 和 coreSchemas.ts 文件 。src /screens/ 目录用于构建全屏布局，而 src/components/ 目录则通过 Ink 框架提供终端 UI 构建模块。交互式 CLI 会启动一个终端 UI，该 UI 具有实时流式传输、权限对话框和进度指示器。无头 CLI（ claude -p ）会创建一个 QueryEngine 实例以进行单次处理。Agent SDK 通过异步生成器发出类型化事件。
+
+#### Core layer (agent loop, compaction pipeline).
+核心层（代理循环、压缩管道）。
+
+The queryLoop() async generator (query.ts) implements the iterative agent loop, consuming assembled context from the state layer and dispatching tool requests to the safety/action layer. Before every model call, a *compaction pipeline* of five sequential shapers (query.ts:365--453) manages context pressure: budget reduction, snip, microcompact, context collapse, and auto-compact (Sections˜4.3 and 7.3).
+queryLoop() 异步生成器（ query.ts ）实现了迭代代理循环，从状态层消费组装好的上下文，并将工具请求分派到安全/动作层。在每次模型调用之前，由五个顺序整形器（ query.ts:365--453 ）组成的 *压缩管道* 会管理上下文压力：预算减少、snip、微压缩、上下文折叠和自动压缩（ 参见第 4.3 节和第 7.3 节）。
+
+#### Safety/action layer (permission system, hooks, extensibility, tools, sandbox, subagents).
+安全/操作层（权限系统、钩子、可扩展性、工具、沙箱、子代理）。
+
+The *permission system* (permissions.ts) implements deny-first rule evaluation with up to seven permission modes (if also counting internal-only bubble and feature-gated auto) (types/permissions.ts) and an integrated *auto-mode ML classifier* (yoloClassifier.ts) that provides a two-stage fast-filter and chain-of-thought evaluation of tool safety (Section˜5). A *hook pipeline* spanning 27 event types (coreTypes.ts; output schemas in types/hooks.ts) can block, rewrite, or annotate tool requests; of these, 5 are safety-related while the remaining 22 serve lifecycle and orchestration purposes (Section˜6). An *extensibility* subsystem allows plugins and skills to register tools and hooks into the runtime. Tool pool assembly via assembleToolPool() (tools.ts) merges built-in and MCP-provided tools. Approved shell commands pass through a *shell sandbox* (shouldUseSandbox.ts) that restricts filesystem and network access independently of the permission system. *Subagent spawning* via AgentTool (AgentTool.tsx, runAgent.ts) is dispatched through the same buildTool() factory as all other tools, re-entering the queryLoop() with an isolated context window and returning only a summary to the parent (Section˜8).
+*权限系统* （ permissions.ts ）实现了优先拒绝规则评估，最多支持七种权限模式（如果算上仅限内部使用的冒泡模式和基于特征的自动模式 ）（ types/permissions.ts ），并集成了一个 *自动模式的机器学习分类器* （ yoloClassifier.ts ），该分类器提供两阶段快速过滤和链式推理的工具安全性评估（ 第 5 节 ）。一个涵盖 27 种事件类型的 *钩子管道* （ coreTypes.ts ；输出模式位于 types/hooks.ts ）可以阻止、重写或注释工具请求；其中 5 种与安全性相关，其余 22 种用于生命周期和编排（ 第 6 节 ）。一个 *可扩展* 子系统允许插件和技能将工具和钩子注册到运行时中。通过 assembleToolPool() （ tools.ts ）组装工具池，合并内置工具和 MCP 提供的工具。已批准的 shell 命令会经过 *shell 沙箱* （ shouldUseSandbox.ts ），该沙箱独立于权限系统限制文件系统和网络访问。通过 AgentTool （ AgentTool.tsx ， runAgent.ts ） *生成的子代理* 会与其他所有工具一样，通过相同的 buildTool() 工厂进行分发，重新进入 queryLoop() 并使用隔离的上下文窗口，并且仅向父代理返回摘要（ 第 8 节 ）。
+
+#### State layer (context assembly, runtime state, persistence, memory, sidechains).
+状态层（上下文组装、运行时状态、持久化、内存、侧链）。
+
+*Context assembly* is a memoized state loader, not a routing hub: getSystemContext() (context.ts) computes session-level system context including git status, and getUserContext() (context.ts) loads the CLAUDE.md hierarchy and current date. Both are cached for reuse: system context is appended to the system prompt, while user context is added as a user-context message. The src/state/ directory manages runtime application state. Session transcripts are stored as mostly append-only JSONL files at project-specific paths (sessionStorage.ts). The *CLAUDE.md + memory* subsystem provides a four-level instruction hierarchy (claudemd.ts) from managed settings to directory-specific files, plus auto-memory entries that Claude writes during conversations (Section˜7.2). *Sidechain transcripts* (sessionStorage.ts:247) store each subagent’s conversation in a separate file, preventing subagent content from inflating the parent context (Section˜8.3). Global prompt history is maintained in history.jsonl (history.ts). Resume and fork operations reconstruct session state from transcripts (conversationRecovery.ts).
+*上下文程序集* 是一个记忆化的状态加载器，而非路由中心： \`getSystemContext()\` （ context.ts ）计算会话级系统上下文（包括 Git 状态）， \`getUserContext()\` （ context.ts ）加载 CLAUDE.md 层次结构和当前日期。两者都会被缓存以供重用：系统上下文会附加到系统提示符，而用户上下文则会作为用户上下文消息添加。\`src /state/\` 目录管理运行时应用程序状态。会话记录主要以追加式 JSONL 文件的形式存储在项目特定的路径下（ \`sessionStorage.ts\` ）。CLAUDE.md *\+ 内存* 子系统提供了一个四级指令层次结构（ \`claudemd.ts\` ），从托管设置到特定于目录的文件，以及 Claude 在对话期间自动写入的内存条目（ 参见 7.2 节 ）。 *侧链记录* （ sessionStorage.ts:247 ）将每个子代理的对话存储在单独的文件中，防止子代理的内容影响父代理的上下文（ 参见第 8.3 节 ）。全局提示历史记录保存在 history.jsonl （ history.ts ）中。恢复和分支操作会根据记录重建会话状态（ conversationRecovery.ts ）。
+
+#### Backend layer (execution backends, external resources).
+后端层（执行后端、外部资源）。
+
+Shell command execution with optional sandboxing (BashTool.tsx, PowerShellTool.tsx), remote execution support (src/remote/), MCP server connections across multiple transport variants including stdio, SSE, HTTP, WebSocket, SDK, and IDE-specific adapters (services/mcp/client.ts), and 42 tool subdirectories in src/tools/ implement concrete tool logic.
+Shell 命令执行（可选沙箱）（ BashTool.tsx 、 PowerShellTool.tsx ）、远程执行支持（ src/remote/ ）、跨多种传输变体的 MCP 服务器连接（包括 stdio、SSE、HTTP、WebSocket、SDK 和 IDE 特定适配器）（ services/mcp/client.ts ），以及 src/tools/ 中的 42 个工具子目录， 实现了具体的工具逻辑。
+
+### 3.4 QueryEngine: A Clarification 3.4
+查询引擎：澄清说明
+
+The class documentation at QueryEngine.ts states: “QueryEngine owns the query lifecycle and session state for a conversation. It extracts the core logic from ask() into a standalone class that can be used by both the headless/SDK path and (in a future phase) the REPL.” The class is a *conversation wrapper* for non-interactive surfaces, not the engine itself. Its constructor accepts a QueryEngineConfig with initial messages, an abort controller, a file-state cache, and other per-conversation state. Its submitMessage() method is an async generator that orchestrates a single turn. The shared query path lives in query() (query.ts), which wraps an internal queryLoop(); QueryEngine delegates to query().
+QueryEngine.ts 中的类文档指出：“QueryEngine 负责会话的查询生命周期和会话状态。它将 ask() 的核心逻辑提取到一个独立的类中，该类既可供无头/SDK 路径使用，也可供（未来阶段的）REPL 使用。” 该类是用于非交互式界面的 *会话包装器* ，而非引擎本身。它的构造函数接受一个 QueryEngineConfig 对象，其中包含初始消息、中止控制器、文件状态缓存以及其他会话状态。它的 submitMessage() 方法是一个异步生成器，用于协调单个轮次。共享的查询路径位于 query() 函数 （ query.ts ）中，该函数包装了一个内部的 queryLoop() 函数 ； QueryEngine 会将查询委托给 query() 函数 。
+
+This distinction matters architecturally: the interactive CLI also calls query(), bypassing QueryEngine entirely. The shared code path is the loop function, not the engine class.
+这种区别在架构上至关重要：交互式 CLI 也会调用 \`query()\` 函数 ，完全绕过了 \`QueryEngine\` 。共享的代码路径是循环函数，而不是引擎类。
+
+### 3.5 Permission and Safety Layers 3.5
+权限和安全层
+
+The safety-by-default principle is implemented through seven independent layers. A request must pass through all applicable layers, and any single layer can block it:
+默认安全原则通过七个独立的层来实现。请求必须经过所有适用的层，任何一层都可能阻止该请求：
+
+1. Tool pre-filtering (tools.ts): Blanket-denied tools are removed from the model’s view before any call, preventing the model from attempting to invoke them.
+
+工具预过滤 （ tools.ts ）：在任何调用之前，从模型的视图中删除被完全拒绝的工具，从而阻止模型尝试调用它们。
+2. Deny-first rule evaluation (permissions.ts): Deny rules always take precedence over allow rules, even when the allow rule is more specific.
+
+拒绝优先规则评估 （ permissions.ts ）：即使允许规则更具体，拒绝规则也始终优先于允许规则。
+3. Permission mode constraints (types/permissions.ts): The active mode determines baseline handling for requests matching no explicit rule.
+
+权限模式约束 （ types/permissions.ts ）：活动模式决定了对没有明确规则的请求的基线处理。
+4. Auto-mode classifier: An ML-based classifier evaluates tool safety, potentially denying requests the rule system would allow.
+
+5. Shell sandboxing (shouldUseSandbox.ts): Approved shell commands may still execute inside a sandbox restricting filesystem and network access.
+自动模式分类器 ：基于机器学习的分类器评估工具安全性，可能会拒绝规则系统允许的请求。
+
+Shell 沙箱 （ shouldUseSandbox.ts ）：已批准的 shell 命令仍然可以在沙箱内执行，从而限制文件系统和网络访问。
+6. Not restoring permissions on resume (conversationRecovery.ts): Session-scoped permissions are not restored on resume or fork.
+
+恢复时未恢复权限 （ conversationRecovery.ts ）：会话范围的权限在恢复或 fork 时不会恢复。
+7. Hook-based interception (types/hooks.ts): PreToolUse hooks can modify permission decisions; PermissionRequest hooks can resolve decisions asynchronously alongside the user dialog (or before it, in coordinator mode).
+
+基于钩子的拦截 （ types/hooks.ts ）：PreToolUse 钩子可以修改权限决策；PermissionRequest 钩子可以与用户对话框一起异步解决决策（或者在协调器模式下，在用户对话框之前解决决策）。
+
+These layers are described in detail in Section˜5.
+这些层在第 ˜ 5 节中有详细描述。
+
+### 3.6 Context as Bottleneck: Beyond Compaction 3.6
+上下文即瓶颈：超越压缩
+
+Beyond the five-layer compaction pipeline (detailed in Section˜7), several other subsystem decisions reflect the context-as-bottleneck constraint:
+除了五层压缩管道（详见第 ˜ 7 节 ）之外，其他几个子系统决策也反映了上下文作为瓶颈的限制：
+
+- CLAUDE.md lazy loading: The base CLAUDE.md hierarchy is loaded at session start, but additional nested-directory instruction files and conditional rules are loaded only when the agent reads files in those directories, preventing unused instructions from consuming context.
+
+CLAUDE.md 延迟加载 ：基本 CLAUDE.md 层次结构在会话开始时加载，但附加的嵌套目录指令文件和条件规则仅在代理读取这些目录中的文件时加载，从而防止未使用的指令消耗上下文。
+- Deferred tool schemas: When ToolSearch is enabled, some tools include only their names in the initial context; full schemas are loaded on demand.
+
+延迟工具架构 ：启用 ToolSearch 时，某些工具的初始上下文中仅包含其名称；完整的架构会在需要时加载。
+- Subagent summary-only return: Subagents return only summary text to the parent, not their full conversation history (Section˜8).
+
+- Per-tool-result budget: Individual tool results are capped at a configurable size, preventing a single verbose output from consuming disproportionate context.
+子代理仅返回摘要 ：子代理仅向父代理返回摘要文本，而不是其完整的对话历史记录（ 第 8 节 ）。
+
+每个工具结果的预算 ：单个工具结果的大小受到可配置的限制，防止单个冗长的输出占用过多的上下文。
+
+## 4 Turn Execution: The Agentic Query Loop 4.
+回合执行：代理查询循环
+
+When the user submits “Fix the failing test in auth.test.ts,” the input enters a reactive loop, one of several possible orchestration patterns for coding agents. This section examines Claude Code’s choice of a simple while-loop architecture and traces one turn of that loop end-to-end, illustrating three design principles from Table˜1: *minimal scaffolding with maximal operational harness*, *context as scarce resource with progressive management*, and *graceful recovery and resilience*.
+当用户提交“修复 auth.test.ts 中失败的测试”时，输入会进入一个响应式循环，这是编码代理的几种可能的编排模式之一。本节将探讨 Claude Code 选择简单 while 循环架构的原因，并完整地追踪该循环的一次执行，以此阐释表 1 中的三个设计原则： *最小化脚手架以实现最大程度的操作性利用* 、 *将上下文视为稀缺资源并进行渐进式管理* ，以及 *优雅的恢复和弹性* 。
+
+### 4.1 The Query Pipeline 4.1
+查询管道
+
+Each turn follows a fixed sequence (Figure˜2, query.ts):
+每一回合都遵循固定的顺序（ 图 ˜ 2 ， query.ts ）：
+
+1. Settings resolution. The queryLoop() function destructures immutable parameters including the system prompt, user context, permission callback, and model configuration.
+2. Mutable state initialization. A single State object stores all mutable state across iterations, including messages, tool context, compaction tracking, and recovery counters. The loop’s seven continue points (the “continue sites”) each overwrite this object in one whole-object assignment rather than mutating fields individually.
+3. Context assembly. The function getMessagesAfterCompactBoundary() retrieves messages from the last compact boundary forward, ensuring that compacted content is represented by its summary rather than the original messages.
+
+上下文组装。getMessagesAfterCompactBoundary () 函数从最后一个压缩边界开始检索消息，确保压缩后的内容由其摘要表示，而不是由原始消息表示。
+4. Pre-model context shapers. Five shapers execute sequentially (Section˜4.3).
+
+5. Model call. A for await loop over deps.callModel() streams the model’s response, passing assembled messages (with user context prepended), the full system prompt, thinking configuration, the available tool set, an abort signal, the current model specification, and additional options including fast-mode settings, effort value, and fallback model.
+预模型上下文塑造器。 五个塑造器按顺序执行（ 第 4.3 节 ）。
+
+模型调用。 对 deps.callModel() 进行 for await 循环，流式传输模型的响应，传递组装的消息（带有用户上下文前缀）、完整的系统提示、思考配置、可用工具集、中止信号、当前模型规范以及其他选项，包括快速模式设置、工作量值和回退模型。
+6. Tool-use dispatch. If the response contains tool\_use blocks, they flow to the tool orchestration layer (Section˜4.2).
+
+工具使用分发。 如果响应包含 tool\_use 块，则它们会流向工具编排层（ 第 4.2 节 ）。
+7. Permission gate. Each tool request passes through the permission system (Section˜5).
+
+8. Tool execution and result collection. Tool results are added to the conversation as tool\_result messages, and the loop continues.
+权限门。 每个工具请求都要经过权限系统（ 第 5 节 ）。
+
+工具执行和结果收集。 工具结果以 tool\_result 消息的形式添加到对话中，循环继续进行。
+9. Stop condition. If the response contains no tool\_use blocks (text only), the turn is complete.
+
+停止条件。 如果响应中不包含任何 tool\_use 代码块（仅文本），则回合结束。
+
+The queryLoop() function is defined as an AsyncGenerator, yielding StreamEvent, RequestStartEvent, Message, TombstoneMessage, and ToolUseSummaryMessage events as it progresses. This generator-based design enables streaming output to the UI layer while maintaining a single synchronous control flow within the loop.
+queryLoop() 函数被定义为一个 AsyncGenerator ，它会在执行过程中生成 StreamEvent 、 RequestStartEvent 、 Message 、 TombstoneMessage 和 ToolUseSummaryMessage 事件。这种基于生成器的设计使得在循环内部保持单一同步控制流的同时，能够将输出流式传输到 UI 层。
+
+Claude Code’s reactive loop follows the ReAct pattern (yao2022react): the model generates reasoning and tool invocations, the harness executes actions, and results feed the next iteration. Alternative orchestration patterns include explicit graph-based routing (langgraph2024), where control flow is defined as a state machine with typed edges, and tree-search methods (zhou2024lats) that explore multiple action trajectories before committing. Anthropic’s own documentation (anthropic2024effective) identifies five composable workflow patterns (prompt chaining, routing, parallelization, orchestrator-workers, and evaluator-optimizer) of which Claude Code primarily uses the orchestrator-workers pattern for subagent delegation (Section˜8) while keeping the core loop reactive. The reactive design trades search completeness for simplicity and latency: each turn commits to one action sequence without backtracking.
+Claude Code 的响应式循环遵循 ReAct 模式 ( yao2022react ) ：模型生成推理和工具调用，框架执行操作，结果用于下一次迭代。其他编排模式包括显式的基于图的路由 ( langgraph2024 ) ，其中控制流被定义为具有类型化边的状态机；以及树搜索方法 ( zhou2024lats ) ，该方法在提交之前探索多个操作轨迹。Anthropic 自身的文档 ( anthropic2024effective ) 列出了五种可组合的工作流模式（提示链、路由、并行化、编排器-工作器和评估器-优化器），其中 Claude Code 主要使用编排器-工作器模式进行子代理委托（ 第 8 节 ），同时保持核心循环的响应式特性。响应式设计以搜索完整性为代价，换取了简洁性和低延迟：每次迭代都提交一个操作序列，而不会回溯。
+
+### 4.2 Tool Dispatch and Streaming Execution 4.2
+工具调度和流式执行
+
+When the model response contains tool\_use blocks, the system chooses between two execution paths. The primary path uses StreamingToolExecutor, which begins executing tools as they stream in from the model response, reducing latency for multi-tool responses. The fallback path uses runTools() in toolOrchestration.ts, which iterates over partitions produced by partitionToolCalls(). Both paths classify tools as concurrent-safe or exclusive. Read-only operations can execute in parallel, while state-modifying operations like shell commands are serialized.
+当模型响应包含 tool\_use 代码块时，系统会在两条执行路径之间进行选择。主路径使用 StreamingToolExecutor ，它会在工具从模型响应流式传输过来时立即执行它们，从而降低多工具响应的延迟。备用路径使用 toolOrchestration.ts 中的 runTools() 函数 ，该函数会遍历 partitionToolCalls() 生成的分区。两条路径都会将工具分类为并发安全或互斥。只读操作可以并行执行，而像 shell 命令这样的状态修改操作则会串行执行。
+
+The StreamingToolExecutor (StreamingToolExecutor.ts) manages concurrent execution with two coordination mechanisms:
+StreamingToolExecutor （ StreamingToolExecutor.ts ）使用两种协调机制来管理并发执行：
+
+- Sibling abort controller. Fires when any Bash tool errors, immediately terminating other in-flight subprocesses rather than letting them run to completion.
+
+同级中止控制器。 当任何 Bash 工具出错时触发，立即终止其他正在运行的子进程，而不是让它们运行完成。
+- Progress-available signal. Wakes up the getRemainingResults() consumer when new output is ready.
+
+进度可用信号。 当有新输出准备就绪时，唤醒 getRemainingResults() 消费者。
+
+Results are buffered and emitted in the order tools were received, so output order stays the same even when tools run in parallel. This is important because the model expects tool results in the same order as its tool-use requests. This concurrent-read, serial-write execution model occupies a middle ground between fully serial dispatch and more aggressive speculative approaches such as PASTE (sui2026paste), which speculatively pre-executes predicted future tool calls while the model is still generating, hiding tool latency through speculation.
+结果会按照工具接收的顺序进行缓冲和输出，因此即使工具并行运行，输出顺序也保持不变。这一点至关重要，因为模型期望工具结果的顺序与其工具使用请求的顺序一致。这种并发读取、串行写入的执行模型介于完全串行分发和更激进的推测性方法（例如 PASTE ( sui2026paste )） 之间。PASTE 会在模型仍在生成结果时预先推测执行预测的未来工具调用，从而通过推测隐藏工具延迟。
+
+The tool result collection phase iterates over updates from either the streaming executor or the synchronous runTools() generator. Each update may carry a tool result, an attachment, or a progress event. A special check detects hook\_stopped\_continuation attachments: if a PostToolUse hook signals that the turn should not continue, a shouldPreventContinuation flag is set. Results are normalized for the Anthropic API via normalizeMessagesForAPI(), filtering to keep only user-type messages.
+工具结果收集阶段会遍历来自流式执行器或同步 runTools() 生成器的更新。每次更新可能包含工具结果、附件或进度事件。一项特殊检查会检测 hook\_stopped\_continuation 附件：如果 PostToolUse 钩子发出回合不应继续的信号，则会设置 shouldPreventContinuation 标志。结果通过 normalizeMessagesForAPI() 进行规范化，以符合 Anthropic API 的要求，仅保留用户类型的消息。
+
+### 4.3 Pre-Model Context Shapers 4.3
+模型前情境塑造者
+
+Five context shapers execute sequentially in query.ts before every model call, each operating on the messagesForQuery array. The five shapers run in sequence, with earlier steps applying lighter reductions before later steps apply broader compaction.
+在 query.ts 文件中，每次模型调用之前，都会依次执行五个上下文整形器，每个整形器都对 messagesForQuery 数组进行操作。这五个整形器按顺序运行，前面的步骤应用较轻的归约操作，后面的步骤应用更广泛的压缩操作。
+
+#### Budget reduction.
+削减预算。
+
+(applyToolResultBudget()). Enforces per-message size limits on tool results, replacing oversized outputs with content references. Exempt tools (those where maxResultSizeChars is not finite) retain their full output. Content replacements are persisted for agent and session query sources to enable reconstruction on resume. Budget reduction runs before microcompact because microcompact operates purely by tool\_use\_id and never inspects content; the two compose cleanly.
+( applyToolResultBudget() ) 强制执行工具结果的单条消息大小限制，并将过大的输出替换为内容引用。例外工具（ maxResultSizeChars 不为有限值的工具）保留其完整输出。内容替换会持久化到代理和会话查询源，以便在恢复时进行重建。预算缩减在微压缩之前运行，因为微压缩完全基于 tool\_use\_id 运行，从不检查内容；两者可以完美地组合在一起。
+
+#### Snip.
+剪断。
+
+(snipCompactIfNeeded(), gated by HISTORY\_SNIP). A lightweight trim that removes older history segments, returning {messages, tokensFreed, boundaryMessage}. The snipTokensFreed value is plumbed to auto-compact because the main token counter derives context size from the usage field on the most recent assistant message, and that message survives snip with its pre-snip input\_tokens still attached; snip’s savings are therefore invisible to the counter unless passed through explicitly.
+（ snipCompactIfNeeded() ，受 HISTORY\_SNIP 控制）。一个轻量级的修剪操作，用于移除较旧的历史记录片段，返回 {messages, tokensFreed, boundaryMessage} 。snipTokensFreed 的值与自动压缩机制相连，因为主标记计数器从最近一条助手消息的 usage 字段中获取上下文大小，而该消息在修剪后仍然保留了其修剪前的 input\_tokens ；因此，除非显式传递，否则修剪节省的空间对计数器是不可见的。
+
+#### Microcompact.
+微型紧凑型。
+
+Fine-grained compression that always runs a time-based path and optionally a cache-aware path (gated by CACHED\_MICROCOMPACT). When the cached path is enabled, boundary messages are deferred until after the API response so they can use actual cache\_deleted\_input\_tokens rather than estimates. Returns {messages, compactionInfo} where compactionInfo may include pendingCacheEdits.
+细粒度压缩始终运行基于时间的路径，并可选择运行缓存感知路径（由 CACHED\_MICROCOMPACT 控制）。启用缓存路径后，边界消息将被延迟到 API 响应之后，以便它们可以使用实际的 cache\_deleted\_input\_tokens 而不是估计值。返回 {messages, compactionInfo} ，其中 compactionInfo 可能包含 pendingCacheEdits 。
+
+#### Context collapse.
+上下文崩溃。
+
+Gated by CONTEXT\_COLLAPSE. A read-time projection over the conversation history. The source comments explain: “Nothing is yielded; the collapsed view is a read-time projection over the REPL’s full history. Summary messages live in the collapse store, not the REPL array. This is what makes collapses persist across turns.” Unlike the other shapers, context collapse does not mutate the REPL’s stored history; it replaces the messagesForQuery array with a projected view via applyCollapsesIfNeeded(), so the model sees the collapsed version while the full history remains available for reconstruction.
+受 CONTEXT\_COLLAPSE 控制。对会话历史记录进行读取时投影。源代码注释解释道：“不会产生任何实际内容；折叠视图是对 REPL 完整历史记录的读取时投影。摘要消息存储在折叠存储中，而不是 REPL 数组中。这使得折叠信息能够在回合之间保持不变。” 与其他整形器不同，上下文折叠不会修改 REPL 存储的历史记录；它通过 applyCollapsesIfNeeded() 将 messagesForQuery 数组替换为投影视图，因此模型可以看到折叠版本，同时完整的历史记录仍然可用于重建。
+
+#### Auto-compact.
+自动紧凑型汽车。
+
+The fifth shaper, triggering a full model-generated summary via compactConversation() in compact.ts. This function executes PreCompact hooks, creates a summary request using getCompactPrompt(), and calls the model to produce a compressed summary. The result feeds into buildPostCompactMessages() (compact.ts). Auto-compact fires only when the context still exceeds the pressure threshold after all four previous shapers have run.
+第五个整形器通过 compact.ts 中的 compactConversation() 函数触发完整的模型生成摘要。此函数执行 PreCompact 钩子，使用 getCompactPrompt() 创建一个摘要请求，并调用模型生成压缩摘要。结果会传递给 buildPostCompactMessages() 函数 （位于 compact.ts 中 ）。仅当前面四个整形器运行完毕后，上下文仍然超过压缩阈值时，才会触发自动压缩。
+
+### 4.4 Recovery Mechanisms 4.4
+恢复机制
+
+The query loop implements several recovery mechanisms for edge cases:
+查询循环针对特殊情况实现了多种恢复机制：
+
+- Max output tokens escalation: When the response hits the output token cap, the system can retry with an escalated limit, subject to a GrowthBook flag and the absence of an existing override or environment-variable cap. Up to three recovery attempts are allowed per turn (MAX\_OUTPUT\_TOKENS\_RECOVERY\_LIMIT = 3).
+
+最大输出令牌升级 ：当响应达到输出令牌上限时，系统可以提高限制进行重试，但需满足 GrowthBook 标志的要求，且不存在现有的覆盖或环境变量限制。每次最多允许三次恢复尝试（ MAX\_OUTPUT\_TOKENS\_RECOVERY\_LIMIT = 3 ）。
+- Reactive compaction (gated by REACTIVE\_COMPACT): When the context is near capacity, reactive compact summarizes just enough to free space. The hasAttemptedReactiveCompact flag ensures this fires at most once per turn.
+
+响应式压缩 （由 REACTIVE\_COMPACT 控制）：当上下文接近容量上限时， 响应式压缩会仅汇总足够的信息以释放空间。hasAttemptedReactiveCompact 标志确保此操作每回合最多触发一次。
+- Prompt-too-long handling: If the API returns a prompt\_too\_long error, the loop first attempts context-collapse overflow recovery and reactive compaction. Only after these fail does it terminate with reason: ’prompt\_too\_long’.
+
+提示过长处理 ：如果 API 返回 prompt\_too\_long 错误，循环首先尝试上下文折叠溢出恢复和响应式压缩。只有在这些都失败后，循环才会终止 ，原因为：'prompt\_too\_long' 。
+- Streaming fallback: The onStreamingFallback callback handles streaming API issues, allowing the loop to retry with a different strategy.
+
+流式回退 ： onStreamingFallback 回调处理流式 API 问题，允许循环使用不同的策略重试。
+- Fallback model: The fallbackModel parameter enables switching to an alternative model if the primary model fails.
+
+备用模型 ： fallbackModel 参数允许在主模型发生故障时切换到备用模型。
+
+### 4.5 Stop Conditions 4.5
+停止条件
+
+Multiple conditions can terminate the loop:
+多种条件均可终止循环：
+
+1. No tool use: The model produces only text content (the primary stop condition).
+
+2. Max turns: The configurable maxTurns limit is reached.
+不使用工具 ：该模型仅生成文本内容（主要停止条件）。
+
+3. Context overflow: The API returns prompt\_too\_long.
+最大转弯数 ：已达到可配置的最大转弯数限制。
+
+上下文溢出 ：API 返回 prompt\_too\_long 。
+4. Hook intervention: A PostToolUse hook sets hook\_stopped\_continuation.
+
+钩子干预 ：PostToolUse 钩子设置 hook\_stopped\_continuation 。
+5. Explicit abort: The abortController signal fires.
+
+显式中止 ：触发 abortController 信号。
+
+The turn pipeline determines *how* tool requests are orchestrated and recovered. The next section examines the gate that determines *whether* each request is permitted to execute at all.
+轮询流程决定了工具请求的协调和回收 *方式* 。下一节将探讨决定每个请求 *是否* 允许执行的门控机制。
+
+![Refer to caption](https://arxiv.org/html/2604.14228v1/x4.png)
+
+Figure 4: Permission gate overview and design principles.
+图 4 ： 权限门概述和设计原则。
+
+## 5 Tool Authorization and Control Boundaries 5
+工具授权和控制边界
+
+Production coding agents adopt different safety architectures: layered policy enforcement, OS-level sandboxing, or version-control-based rollback. Claude Code combines the first two, implementing four design principles from Table˜1: *deny-first with human escalation*, *graduated trust spectrum*, *defense in depth with layered mechanisms*, and *reversibility-weighted risk assessment*.
+生产编码代理采用不同的安全架构：分层策略执行、操作系统级沙箱或基于版本控制的回滚。Claude Code 结合了前两种架构，实现了表 ˜ 1 中的四个设计原则： *首先拒绝并进行人工升级* 、 *渐进式信任谱* 、 *采用分层机制的纵深防御* 以及 *可逆性加权风险评估* 。
+
+When Claude decides to execute a tool (for example, running npm test via BashTool to reproduce the auth test failure), the request enters the permission pipeline shown in Figure˜4. Every tool invocation passes through the permission system, and the default behavior is to deny or ask rather than allow silently. This default is motivated by a documented behavioral pattern: Anthropic’s auto-mode analysis (anthropic2026automode) found that users approve approximately 93% of permission prompts, indicating that approval fatigue renders interactive confirmation behaviorally unreliable as a sole safety mechanism. Because users habitually approve without careful review, the system must maintain safety independently of human vigilance. This motivates the architectural commitment to deny-first evaluation, blanket-deny pre-filtering, and sandboxing as independent layers that operate regardless of user attentiveness.
+当 Claude 决定执行某个工具（例如，通过 BashTool 运行 \`npm test\` 来重现身份验证测试失败）时，请求会进入如图 4 所示的权限管道。每次工具调用都会经过权限系统，默认行为是拒绝或询问，而不是默默允许。这种默认行为源于一个已记录的行为模式：Anthropic 的自动模式分析 （ anthropic2026automode ） 发现，用户会批准大约 93% 的权限提示，这表明用户会因审批疲劳而放弃使用交互式确认作为唯一的安全机制。由于用户习惯性地在没有仔细审查的情况下批准，系统必须独立于用户监督来维护安全性。这促使我们在架构中采用先拒绝后评估、全面拒绝预过滤和沙箱机制，这些机制作为独立的层级运行，不受用户注意力的影响。
+
+### 5.1 Permission Modes and Rule Evaluation 5.1
+权限模式和规则评估
+
+Seven permission modes exist across the type definitions (5 external modes at types/permissions.ts; auto added conditionally; bubble in the type union):
+类型定义中存在七种权限模式（ types/permissions.ts 中有 5 种外部模式；有条件自动添加；在类型联合中冒泡 ）：
+
+1. plan: The model must create a plan; execution proceeds only after user approval.
+
+2. default: Standard interactive use. Most operations require user approval.
+计划 ：模型必须制定计划；只有在用户批准后才能执行。
+
+3. acceptEdits: Edits within the working directory and certain filesystem shell commands (mkdir, rmdir, touch, rm, mv, cp, sed) are auto-approved; other shell commands require approval.
+默认 ：标准交互式使用。大多数操作需要用户批准。
+
+acceptEdits ：工作目录内的编辑和某些文件系统 shell 命令（mkdir、rmdir、touch、rm、mv、cp、sed）会自动批准；其他 shell 命令需要批准。
+4. auto: An ML-based classifier evaluates requests that do not pass fast-path checks (gated by TRANSCRIPT\_CLASSIFIER).
+
+自动 ：基于 ML 的分类器评估未通过快速路径检查（由 TRANSCRIPT\_CLASSIFIER 控制）的请求。
+5. dontAsk: No prompting, but deny rules are still enforced.
+
+dontAsk ：不提示，但拒绝规则仍然执行。
+6. bypassPermissions: Skips most permission prompts, but safety-critical checks and bypass-immune rules still apply.
+
+bypassPermissions ：跳过大多数权限提示，但安全关键检查和绕过免疫规则仍然适用。
+7. bubble: Internal-only mode for subagent permission escalation to the parent terminal.
+
+bubble ：仅限内部使用的模式，用于将子代理权限提升至父终端。
+
+The five externally visible modes (acceptEdits, bypassPermissions, default, dontAsk, plan) are defined in the EXTERNAL\_PERMISSION\_MODES array. The auto mode is conditionally included only when the TRANSCRIPT\_CLASSIFIER feature flag is active. The bubble mode exists in the type union but not in either mode array; it is used internally for subagent permission escalation (Section˜8).
+五个外部可见模式（ acceptEdits 、 bypassPermissions 、 default 、 dontAsk 、 plan ）定义在 EXTERNAL\_PERMISSION\_MODES 数组中。 自动模式仅在 TRANSCRIPT\_CLASSIFIER 功能标志激活时才有条件地包含在内。 气泡模式存在于类型联合体中，但不存在于任何模式数组中；它在内部用于子代理权限提升（ 参见第 8 节 ）。
+
+Permission rules are evaluated in deny-first order (permissions.ts). The toolMatchesRule() function checks deny rules first: a deny rule always takes precedence over an allow rule, even when the allow rule is more specific. A broad deny (“deny all shell commands”) cannot be overridden by a narrow allow (“allow npm test”). The rule system supports tool-level matching (by tool name) and content-level matching (matching specific tool input patterns, such as Bash(prefix:npm)).
+权限规则按拒绝优先的顺序进行评估（ permissions.ts ）。\`toolMatchesRule ()\` 函数首先检查拒绝规则：拒绝规则始终优先于允许规则，即使允许规则更具体。宽泛的拒绝规则（例如“拒绝所有 shell 命令”）不能被狭义的允许规则（例如“允许 npm test ”）覆盖。规则系统支持工具级匹配（按工具名称）和内容级匹配（匹配特定的工具输入模式，例如 Bash(prefix:npm) ）。
+
+The seven modes span a graduated autonomy spectrum, from plan (user approves all plans before execution) through default and acceptEdits to bypassPermissions (minimal prompting). This gradient reflects a recurring design tension: as autonomy increases, the system must shift from interactive approval to automated safety checks. Other agent systems resolve this tension differently. SWE-Agent and OpenHands (yang2024sweagent; wang2024openhands) use Docker container isolation, sandboxing the agent’s entire execution environment rather than evaluating individual tool invocations. Aider (gauthier2024aider) relies on Git as a safety net, making all changes reversible through version control. Claude Code’s approach layers multiple policy-enforcement mechanisms on top of optional container sandboxing, trading simplicity for fine-grained control over individual actions.
+这七种模式涵盖了从计划 （用户在执行前批准所有计划）到默认和接受编辑 ，再到绕过权限 （仅需少量提示）的渐进式自主性谱系。这种渐变反映了一个反复出现的设计难题：随着自主性的提高，系统必须从交互式审批转向自动化安全检查。其他代理系统以不同的方式解决了这一难题。SWE-Agent 和 OpenHands （ yang2024sweagent ； wang2024openhands ） 使用 Docker 容器隔离，将代理的整个执行环境沙箱化，而不是评估单个工具的调用。Aider （ gauthier2024aider ） 依赖 Git 作为安全网，通过版本控制使所有更改都可逆。Claude Code 的方法在可选的容器沙箱之上叠加了多种策略执行机制，以牺牲简洁性为代价，换取对单个操作的细粒度控制。
+
+### 5.2 The Authorization Pipeline 5.2
+授权流程
+
+The full authorization pipeline proceeds through several stages:
+完整的授权流程包括以下几个阶段：
+
+#### Pre-filtering.
+预过滤。
+
+Before any tool request reaches runtime evaluation, filterToolsByDenyRules() (tools.ts) strips blanket-denied tools from the model’s view entirely at tool pool assembly time. The documentation states: “Uses the same matcher as the runtime permission check, so MCP server-prefix rules like mcp\_\_server strip all tools from that server before the model sees them.” This prevents the model from attempting to invoke forbidden tools, so the model does not waste calls on them.
+在任何工具请求进入运行时评估之前， \`filterToolsByDenyRules()\` 函数 （位于 tools.ts 文件中 ）会在工具池组装时，将所有被禁止的工具从模型的视图中完全移除。文档中指出：“它使用与运行时权限检查相同的匹配器，因此像 \` mcp\_\_server\` 这样的 MCP 服务器前缀规则会在模型看到工具之前，从该服务器上移除所有工具。” 这可以防止模型尝试调用被禁止的工具，从而避免模型浪费调用次数。
+
+#### PreToolUse hook. PreToolUse
+钩子。
+
+Registered hooks fire as part of the permission pipeline. A PreToolUse hook can return a permissionDecision to deny or ask, or an updatedInput that modifies the tool’s input parameters (types/hooks.ts). A hook allow does not bypass subsequent rule-based denies or safety checks. In the interactive path, the user dialog is queued first and hooks run asynchronously; coordinator and similar background-agent paths await automated checks before showing the dialog.
+已注册的钩子作为权限管道的一部分触发。PreToolUse 钩子可以返回一个 permissionDecision 来拒绝或请求权限，或者返回一个 updatedInput 来修改工具的输入参数（ types/hooks.ts ）。 允许钩子不会绕过后续基于规则的拒绝或安全检查。在交互式路径中，用户对话框首先被放入队列，钩子异步运行；协调器和类似的后台代理路径会在显示对话框之前等待自动检查。
+
+#### Rule evaluation.
+规则评估。
+
+The deny-first rule engine evaluates the request. MCP tools are matched by their fully qualified mcp\_\_server\_\_tool name, and server-level rules match all tools from that server.
+拒绝优先规则引擎会评估请求。MCP 工具通过其完全限定的 mcp\_\_server\_\_tool 名称进行匹配，服务器级规则匹配来自该服务器的所有工具。
+
+#### Permission handler.
+权限处理程序。
+
+The handler in useCanUseTool.tsx branches into one of four paths based on runtime context:
+useCanUseTool.tsx 中的处理程序会根据运行时上下文分支到以下四个路径之一：
+
+1. Coordinator: For multi-agent coordination mode. Attempts automated resolution (classifier, hooks, rules) before falling back to user interaction.
+
+2. Swarm worker: Handles worker agents in a multi-agent swarm with their own resolution logic.
+协调器 ：用于多智能体协调模式。在回退到用户交互之前，会尝试自动解决问题（分类器、钩子、规则）。
+
+3. Speculative classifier: When BASH\_CLASSIFIER is enabled and the tool is BashTool, a speculative classifier races a pre-started classification result against a timeout. If the classifier returns with high confidence, the tool is approved instantly without user interaction.
+集群工作节点 ：在多智能体集群中处理具有自身解析逻辑的工作智能体。
+
+推测性分类器 ：当启用 BASH\_CLASSIFIER 且工具为 BashTool 时，推测性分类器会与预先启动的分类结果进行超时竞速。如果分类器返回高置信度结果，则无需用户交互即可立即批准该工具。
+4. Interactive: The fallback path. Presents the standard user approval dialog through the terminal UI.
+
+交互式 ：备用路径。通过终端用户界面显示标准用户审批对话框。
+
+In coordinator and some background paths, automated resolution is attempted before user interaction. In the standard interactive path, the dialog can appear first while hooks or classifier checks continue in parallel. When the classifier or a deny rule blocks an action, the system treats the denial as a routing signal rather than a hard stop: the model receives the denial reason, revises its approach, and attempts a safer alternative in the next loop iteration. The PermissionDenied hook event (Section˜6) enables external code to observe and respond to these denials programmatically. This recovery-oriented design means that permission enforcement shapes the agent’s behavior rather than simply halting it.
+在协调器和某些后台路径中，系统会在用户交互之前尝试自动解决权限问题。在标准交互路径中，对话框会先出现，同时钩子或分类器检查会并行运行。当分类器或拒绝规则阻止某个操作时，系统会将拒绝视为路由信号，而不是强制停止：模型会接收拒绝原因，调整其方法，并在下一次循环迭代中尝试更安全的替代方案。PermissionDenied 钩子事件（ 第 6 节 ）允许外部代码以编程方式观察并响应这些拒绝。这种面向恢复的设计意味着权限强制执行会影响代理的行为，而不是简单地停止其运行。
+
+### 5.3 Auto-Mode Classifier and Hook Lifecycle 5.3
+自动模式分类器和钩子生命周期
+
+The auto-mode classifier (yoloClassifier.ts) participates in permission decisions when enabled. When TRANSCRIPT\_CLASSIFIER is enabled, the classifier loads three prompt resources:
+自动模式分类器（ yoloClassifier.ts ）启用后会参与权限决策。启用 TRANSCRIPT\_CLASSIFIER 后，分类器会加载三个提示资源：
+
+- A base system prompt.
+
+- An external permissions template.
+基本系统提示符。
+
+- For Anthropic-internal users, a separate internal template.
+外部权限模板。
+
+对于 Anthropic 内部用户，使用单独的内部模板。
+
+The classifier evaluates the proposed tool invocation against the conversation transcript and the permission template, producing an allow, deny, or request for manual approval. The function isUsingExternalPermissions() checks USER\_TYPE and a forceExternalPermissions config flag to select the appropriate template.
+分类器会根据对话记录和权限模板评估所提议的工具调用，并生成允许、拒绝或请求手动批准的结果。\`isUsingExternalPermissions ()\` 函数会检查 \`USER\_TYPE\` 和 \`forceExternalPermissions\` 配置标志，以选择合适的模板。
+
+Of the 27 hook events defined in the source (coreTypes.ts), five participate directly in the permission flow, each with a specific Zod-validated output schema (types/hooks.ts):
+在源代码（ coreTypes.ts ）中定义的 27 个钩子事件中，有 5 个直接参与权限流程，每个事件都有一个经过 Zod 验证的特定输出模式（ types/hooks.ts ）：
+
+- PreToolUse: Can return permissionDecision (deny or ask, but allow does not bypass subsequent checks), permissionDecisionReason, and updatedInput (modify parameters).
+
+PreToolUse ：可以返回 permissionDecision （拒绝或询问，但允许不会绕过后续检查）、 permissionDecisionReason 和 updatedInput （修改参数）。
+- PostToolUse: Can inject additionalContext and, for MCP tools, return updatedMCPToolOutput to modify results before they enter the context.
+
+PostToolUse ：可以注入额外的上下文 ，并且对于 MCP 工具，返回 updatedMCPToolOutput 以在结果进入上下文之前对其进行修改。
+- PostToolUseFailure: Can inject additionalContext for error-specific guidance.
+
+PostToolUseFailure ：可以注入额外的上下文以提供特定于错误的指导。
+- PermissionDenied: Can provide retry guidance after auto-mode denials.
+
+PermissionDenied ：可在自动模式拒绝后提供重试指导。
+- PermissionRequest: Can return a decision of allow or deny. In coordinator and similar paths, this can resolve before the user dialog. In the standard interactive path, it can also run alongside the dialog.
+
+PermissionRequest ：可以返回允许或拒绝的决定 。在协调器和类似路径中，此决定可以在用户对话框之前执行。在标准交互式路径中，它也可以与对话框同时执行。
+
+For non-MCP tools, the tool\_result is emitted before the PostToolUse hook fires. For MCP tools, the result is delayed until after post hooks have run, enabling updatedMCPToolOutput to take effect.
+对于非 MCP 工具， tool\_result 会在 PostToolUse 钩子触发之前发出。对于 MCP 工具，结果会延迟到后置钩子运行完毕后发出，从而使 updatedMCPToolOutput 生效。
+
+### 5.4 Shell Sandboxing5.4 Shell
+沙盒
+
+Shell sandboxing provides an additional layer of protection for Bash and PowerShell commands (shouldUseSandbox.ts). The shouldUseSandbox() function checks whether sandboxing is globally enabled, whether the invocation has opted out, and whether the command matches any exclusion patterns.
+Shell 沙箱为 Bash 和 PowerShell 命令提供了一层额外的保护（ shouldUseSandbox.ts ）。shouldUseSandbox () 函数会检查沙箱是否已全局启用、调用是否选择了退出，以及命令是否符合任何排除模式。
+
+When active, the sandbox provides filesystem and network isolation independent of the application-level permission model. A command can be permission-approved but still sandboxed, or permission-denied and never reach the sandbox check. The two systems operate on different axes: authorization versus isolation.
+启用后，沙箱提供文件系统和网络隔离，且独立于应用程序级别的权限模型。命令可能获得权限批准但仍被沙箱隔离，也可能权限被拒绝而根本不会经过沙箱检查。这两个系统运行在不同的维度上：授权与隔离。
+
+The layered safety architecture rests on an independence assumption: if one layer fails, others catch the violation. However, several layers share common performance constraints. Security researchers (adversa2026bypass) have documented that commands with more than 50 subcommands fall back to a single generic approval prompt instead of running per-subcommand deny-rule checks, because per-subcommand parsing caused UI freezes. This example demonstrates that defense-in-depth can degrade when its layers share failure modes, a structural tension between safety and performance analyzed further in Section˜11.3.
+分层安全架构基于一个独立性假设：如果某一层发生故障，其他层会捕获到违规行为。然而，多个层之间存在共同的性能限制。安全研究人员 （ adversa2026bypass ） 记录到，包含超过 50 个子命令的命令会回退到显示一个通用的批准提示，而不是对每个子命令执行拒绝规则检查，因为逐个子命令的解析会导致用户界面冻结。这个例子表明，当纵深防御的各层存在共同的故障模式时，其性能会下降。这种安全性和性能之间的结构性矛盾将在第 11.3 节中进一步分析。
+
+The permission pipeline governs whether a tool request executes. The next section examines what determines which tools exist in the first place: the extensibility architecture that assembles the model’s action surface.
+权限管道决定工具请求是否执行。下一节将探讨决定哪些工具存在的根本原因：构建模型操作界面的可扩展性架构。
+
+## 6 Extensibility: MCP, Plugins, Skills, and Hooks 6.
+可扩展性：MCP、插件、技能和钩子
+
+A recurring design question for coding agents is how to structure the extension surface: a single unified mechanism, a small number of specialized mechanisms, or a layered stack with different context costs. The analysis here illustrates two design principles from Table˜1: *composable multi-mechanism extensibility* and *externalized programmable policy*. Returning to the running example, once Claude is trying to repair auth.test.ts and the earlier npm test request has been mediated by the permission system (Section˜5), the next question is what extension-enabled action surface is available for the repair. When a turn begins in Claude Code, the model sees not just built-in tools like BashTool and FileReadTool, but also database query tools from an MCP server, a custom lint skill from.claude/skills/, and tools contributed by an installed plugin. These arrive through four mechanisms that extend the agent at different points of the loop: MCP servers provide external tool integration, plugins package and distribute bundles of components, skills inject domain-specific instructions, and hooks intercept the tool execution lifecycle. Anthropic’s documentation (anthropic2026howworks) presents a broader view that includes CLAUDE.md (Section˜7) and subagents (Section˜8) alongside the four mechanisms analyzed here. We treat CLAUDE.md and subagents in their own sections because they operate in different subsystems (context construction and delegation, respectively), but the context-cost ordering is architecturally significant: it reveals how each extension point trades off expressiveness against the bounded context window.
+对于编码代理来说，一个反复出现的设计问题是如何构建扩展界面：是采用单一的统一机制、少量专用机制，还是采用具有不同上下文成本的分层堆栈。本文的分析阐述了表 1 中的两个设计原则： *可组合的多机制可扩展性* 和 *外部化的可编程策略* 。回到运行示例，当 Claude 尝试修复 auth.test.ts 文件 ，并且之前的 npm 测试请求已由权限系统处理（ 参见第 5 节 ）后，下一个问题是：有哪些支持扩展的操作界面可用于修复？当 Claude Code 开始执行操作时，模型不仅会看到 BashTool 和 FileReadTool 等内置工具，还会看到来自 MCP 服务器的数据库查询工具、来自.claude/skills/ 的自定义 lint 技能，以及已安装插件提供的工具。这些功能通过四种机制实现，它们在循环的不同阶段扩展了代理的功能：MCP 服务器提供外部工具集成，插件打包并分发组件包，技能注入特定领域的指令，钩子拦截工具的执行生命周期。Anthropic 的文档 （ anthropic2026howworks ） 提供了一个更全面的视角，除了本文分析的四种机制外，还包括 CLAUDE.md（ 第 7 节 ）和子代理（ 第 8 节 ）。我们主要讨论 CLAUDE。由于 md 和子代理分别在不同的子系统（分别是上下文构建和委托）中运行，因此它们应放在各自的章节中。但上下文成本排序在架构上具有重要意义：它揭示了每个扩展点如何在表达能力和有限的上下文窗口之间进行权衡。
+
+### 6.1 Four Extension Mechanisms 6.1
+四种扩展机制
+
+[⬇](data:text/plain;base64,IyBvbmUgdHVybiBvZiBDbGF1ZGUgQ29kZSdzIGFnZW50IGxvb3AKd2hpbGUgbm90IHN0b3BwZWQ6CiAgICAjICgqQFxoaXtcY2lyY2xlZHthfX1AKikgKCpAXGhpe2Fzc2VtYmxlfUAqKSAtLSBidWlsZCB3aGF0IHRoZSBtb2RlbCBzZWVzCiAgICBjb250ZXh0ID0gYXNzZW1ibGUoCiAgICAgICAgc3lzdGVtX3Byb21wdCwgICAgICMgaW5zdHJ1Y3Rpb25zIGhlYWRlcgogICAgICAgIHRvb2xfc2NoZW1hcywgICAgICAjIGNhbGxhYmxlIHRvb2wgc2lnbmF0dXJlcwogICAgICAgIGhpc3RvcnksICAgICAgICAgICAjIHByaW9yIHR1cm4gbWVzc2FnZXMKICAgICAgICBob29rX2FkZGl0aW9ucywgICAgIyBwdXNoZWQgaW4gYnkgaG9va3MKICAgICkKICAgICMgKCpAXGhpe1xjaXJjbGVke2J9fUAqKSAoKkBcaGl7bW9kZWx9QCopIC0tIHBpY2sgdGhlIG5leHQgYWN0aW9uCiAgICBhY3Rpb24gPSBtb2RlbChjb250ZXh0LCB0b29scykgICAgIyBmbGF0IHRvb2wgcG9vbAogICAgaWYgYWN0aW9uLmlzX3RleHRfb25seSgpOgogICAgICAgIHN0b3BwZWQgPSBydW5fc3RvcF9ob29rcyhhY3Rpb24pICAgICMgbWF5IHZldG8KICAgICAgICBjb250aW51ZQogICAgIyAoKkBcaGl7XGNpcmNsZWR7Y319QCopICgqQFxoaXtleGVjdXRlfUAqKSAtLSBnYXRlIGFuZCBydW4gdGhlIHRvb2wgY2FsbAogICAgaWYgbm90IHBlcm1pdHRlZChhY3Rpb24pOiAgICAgICAgICAgICAgICMgcGVybWlzc2lvbgogICAgICAgIGNvbnRpbnVlCiAgICBhY3Rpb24gPSBydW5fcHJlX3Rvb2xfaG9va3MoYWN0aW9uKSAgICAgIyBibG9jay9yZXdyaXRlCiAgICByZXN1bHQgPSBleGVjdXRlKGFjdGlvbikgICAgICAgICAgICAgICAgIyB0b29sIHJ1bnMgaGVyZQogICAgcmVzdWx0ID0gcnVuX3Bvc3RfdG9vbF9ob29rcyhyZXN1bHQpICAgICMgbXV0YXRlL2Fubm90YXRlCiAgICBoaXN0b3J5LmFwcGVuZChhY3Rpb24sIHJlc3VsdCk=)
+
+\# one turn of Claude Code’s agent loop
+\# Claude Code 的代理循环的一轮
+
+while not stopped:
+未停止时 ：
+
+\# assemble -- build what the model sees
+\# 组装 —— 构建模型所看到的内容
+
+context = assemble(
+context = assemble （
+
+system\_prompt, # instructions header
+system\_prompt ， # 指令头
+
+tool\_schemas, # callable tool signatures
+tool\_schemas ， # 可调用工具签名
+
+history, # prior turn messages
+历史记录 ， # 上一回合消息
+
+hook\_additions, # pushed in by hooks
+hook\_additions ， # 由钩子函数推送
+
+)
+
+\# model -- pick the next action
+\# 模型 -- 选择下一步操作
+
+action = model(context, tools) # flat tool pool
+action = model ( context, tools ) # 扁平工具池
+
+if action.is\_text\_only():
+如果 action.is\_text\_only ( ):
+
+stopped = run\_stop\_hooks(action) # may veto
+stopped = run\_stop\_hooks ( action ) # 可能否决
+
+continue 继续
+
+\# execute -- gate and run the tool call
+\# 执行 -- 门控并运行工具调用
+
+if not permitted(action): # permission
+如果未获许可 （ 操作 ）： # 权限
+
+continue 继续
+
+action = run\_pre\_tool\_hooks(action) # block/rewrite
+action = run\_pre\_tool\_hooks ( action ) # 阻塞 / 重写
+
+result = execute(action) # tool runs here
+result = execute ( action ) # 工具在此处运行
+
+result = run\_post\_tool\_hooks(result) # mutate/annotate
+result = run\_post\_tool\_hooks ( result ) # mutate / annotate
+
+history.append(action, result)
+history.append ( action, result )
+
+assemble(): what the model sees
+assemble()：模型所看到的内容
+Element 元素 What it does 它的作用 CLAUDE.md files
+CLAUDE.md 文件 Loaded into context; files above the working directory load at startup, and subdirectory files load on demand
+Skill descriptions 技能描述 Advertises skills so the model calls SkillTool
+广告宣传技能，因此模型调用了 SkillTool
+MCP resources & prompts
+MCP 资源和提示 Non-tool content an MCP server pushes
+MCP 服务器推送的非工具内容 Output style 输出样式 Replaces the response-formatting system block
+替换响应格式化系统块 UserPromptSubmit hook
+用户提示提交钩子 Inject context, or block, on every user turn
+在每个用户回合注入上下文或代码块 SessionStart hook
+SessionStart 钩子 One-shot context injection at session start
+加载到上下文中；工作目录上级目录的文件在启动时加载，子目录文件按需加载
+会话开始时进行一次性上下文注入
+
+model(): what the model can reach
+model(): 模型能够达到的目标
+Element 元素 What it does 它的作用 Built-in tools 内置工具 Read / Edit / Bash / … shipped with the CLI
+读取/编辑/Bash/… 随 CLI 一起提供 MCP tools MCP 工具 Tools from any MCP server, in the same flat pool
+来自任何 MCP 服务器的工具，都在同一个扁平池中 SkillTool 技能工具 Meta-tool that launches a skill by name
+一个可以按名称启动技能的元工具 AgentTool 代理工具 Meta-tool that spawns a sub-agent recursively
+递归生成子代理的元工具
+
+execute(): whether / how an action runs
+execute()：操作是否/如何运行
+Element 元素 What it does 它的作用 Permission rules 权限规则 Declarative allow / deny / ask per call
+每次调用都使用声明式允许 / 拒绝 / 询问 PreToolUse hook
+PreToolUse 钩子 Approve / block / rewrite a tool call
+批准/阻止/重写工具调用 PostToolUse hook
+PostToolUse 钩子 Mutate output or inject context after a call
+调用后修改输出或注入上下文 Stop hook
+止钩 Force the loop to keep going at model stop
+在模型停止时强制循环继续运行 SubagentStop hook
+SubagentStop 钩子 Same, for sub-agents spawned via AgentTool
+同样，通过 AgentTool 生成的子代理也存在同样的问题。 Notification hook
+通知钩子 External side effects on user notifications
+对用户通知的外部副作用
+
+Figure 5: Where Claude Code’s extension mechanisms plug into the agent loop. The pseudocode on the left is a zoom-in of the Agent Loop block in Figure 1. Every agent loop has three injection points: assemble() controls what the model sees, model() controls what it can reach, and execute() controls whether and how an action actually runs.
+图 5 ： Claude Code 的扩展机制如何接入代理循环。左侧的伪代码是图 1 中代理循环模块的放大图。每个代理循环都有三个注入点：assemble() 控制模型感知到的内容，model() 控制模型可以访问到的内容，execute() 控制动作是否以及如何实际执行。
+
+The mechanisms are implemented in distinct source directories (Figure˜5) and serve different integration patterns:
+这些机制在不同的源目录中实现（ 图 5 ），并服务于不同的集成模式：
+
+#### MCP servers. MCP
+服务器。
+
+The Model Context Protocol is the primary external tool integration path. MCP servers are configured from multiple scopes: project, user, local, and enterprise, with additional plugin and claude.ai servers merged at runtime (services/mcp/config.ts). The MCP client (services/mcp/client.ts) supports multiple transport types: stdio, SSE, HTTP, WebSocket, SDK, plus IDE-specific variants (sse-ide, ws-ide) and an internal claudeai-proxy. Each connected server contributes tool definitions as MCPTool objects. Dedicated built-in tools ListMcpResourcesTool and ReadMcpResourceTool provide access to MCP resources.
+模型上下文协议 (MCP) 是主要的外部工具集成路径。MCP 服务器可从多个范围进行配置：项目、用户、本地和企业，其他插件和 claude.ai 服务器则在运行时合并（ services/mcp/config.ts ）。MCP 客户端（ services/mcp/client.ts ）支持多种传输类型：stdio、SSE、HTTP、WebSocket、SDK，以及特定于 IDE 的变体（ sse-ide 、 ws-ide ）和一个内部 claudeai-proxy 。每个连接的服务器都以 MCPTool 对象的形式贡献工具定义。专用的内置工具 ListMcpResourcesTool 和 ReadMcpResourceTool 提供对 MCP 资源的访问。
+
+#### Plugins.
+插件。
+
+Plugins serve a dual role: they are both a packaging format and a distribution mechanism. The PluginManifestSchema (utils/plugins/schemas.ts) accepts ten component types: commands, agents, skills, hooks, MCP servers, LSP servers, output styles, channels, settings, and user configuration. The plugin loader (utils/plugins/pluginLoader.ts) validates manifests and routes each component to its respective registry: commands and skills surface through the SkillTool meta-tool, agents appear in definitions consumed by AgentTool, hooks merge into the hook registry, MCP and LSP servers fold into their standard configurations, and output styles modify response formatting. A single plugin package can therefore extend Claude Code across multiple component types simultaneously, making plugins the primary distribution vehicle for third-party extensions.
+插件扮演着双重角色：它们既是一种打包格式，也是一种分发机制。PluginManifestSchema（ utils/plugins/schemas.ts ）接受十种组件类型：命令、代理、技能、钩子、MCP 服务器、LSP 服务器、输出样式、通道、设置和用户配置。插件加载器（ utils/plugins/pluginLoader.ts ）验证清单并将每个组件路由到其各自的注册表：命令和技能通过 SkillTool 元工具呈现，代理出现在 AgentTool 使用的定义中，钩子合并到钩子注册表中，MCP 和 LSP 服务器折叠到其标准配置中，输出样式修改响应格式。因此，单个插件包可以同时扩展 Claude Code 的多种组件类型，使插件成为第三方扩展的主要分发途径。
+
+#### Skills.
+技能。
+
+Each skill is defined by a SKILL.md file with YAML frontmatter. The parseSkillFrontmatterFields() function (loadSkillsDir.ts) parses 15+ fields including display name, description, allowed tools (granting the skill access to additional tools), argument hints, model overrides, execution context (’fork’ for isolated execution), associated agent definitions, effort levels, and shell configuration. Skills can define their own hooks, which register dynamically on invocation. Bundled skills are registered in-memory at startup. When invoked, the SkillTool meta-tool injects the skill’s instructions into the context.
+每个技能都由一个包含 YAML 前置元数据的 SKILL.md 文件定义。parseSkillFrontmatterFields () 函数（ loadSkillsDir.ts ）解析 15 个以上的字段，包括显示名称、描述、允许的工具（授予技能访问其他工具的权限）、参数提示、模型覆盖、执行上下文（ 'fork' 表示隔离执行）、关联的代理定义、工作量级别和 shell 配置。技能可以定义自己的钩子，这些钩子会在调用时动态注册。捆绑的技能在启动时注册到内存中。调用时， SkillTool 元工具会将技能的指令注入到上下文中。
+
+#### Hooks.
+钩子。
+
+The source code defines 27 hook events spanning tool authorization (PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, PermissionDenied), session lifecycle (SessionStart, SessionEnd, Setup, Stop, StopFailure), user interaction (UserPromptSubmit, Elicitation, ElicitationResult), subagent coordination (SubagentStart, SubagentStop, TeammateIdle, TaskCreated, TaskCompleted), context management (PreCompact, PostCompact, InstructionsLoaded, ConfigChange), workspace events (CwdChanged, FileChanged, WorktreeCreate, WorktreeRemove), and notifications (coreTypes.ts, coreSchemas.ts). Of these, 15 have event-specific output schemas with rich fields supporting permission decisions, context injection, input modification, MCP result transformation, and retry control (types/hooks.ts). Persisted hook commands configured via settings and plugins use four command types: shell commands (type: command), LLM prompt hooks (type: prompt), HTTP hooks (type: http), and agentic verifier hooks (type: agent) (schemas/hooks.ts). The runtime additionally supports non-persistable callback hooks (type: callback) used by the SDK and internal instrumentation (types/hooks.ts). Hook sources include settings.json, plugins, and managed policy at startup; skill hooks register dynamically on invocation (utils/hooks.ts). The five tool-authorization events are detailed in Section˜5.3.
+源代码定义了 27 个钩子事件，涵盖工具授权（ PreToolUse 、 PostToolUse 、 PostToolUseFailure 、 PermissionRequest 、 PermissionDenied ）、会话生命周期（ SessionStart 、 SessionEnd 、 Setup 、 Stop 、 StopFailure ）、用户交互（ UserPromptSubmit 、 Elicitation 、 ElicitationResult ）、子代理协调（ SubagentStart 、 SubagentStop 、 TeammateIdle 、 TaskCreated 、 TaskCompleted ）、上下文管理（ PreCompact 、 PostCompact 、 InstructionsLoaded 、 ConfigChange ）、工作区事件（ CwdChanged 、 FileChanged 、 WorktreeCreate 、 WorktreeRemove ）以及通知（ coreTypes.ts 、 coreSchemas.ts ）。其中，15 个钩子事件具有特定于事件的输出模式，包含丰富的字段，支持权限决策、上下文注入、输入修改、MCP 结果转换和重试控制（ types/hooks.ts ）。通过设置和插件配置的持久化钩子命令使用四种命令类型：shell 命令（ 类型：command ）、LLM 提示钩子（ 类型：prompt ）、HTTP 钩子（ 类型：http ）和 agentic 验证器钩子（ 类型：agent ）（ schemas/hooks.ts ）。 运行时还支持 SDK 和内部检测工具使用的非持久化回调钩子（ 类型：callback ）（ types/hooks.ts ）。钩子来源包括 settings.json 、插件和启动时的托管策略；技能钩子在调用时动态注册（ utils/hooks.ts ）。五个工具授权事件的详细信息请参见第 5.3 节 。
+
+### 6.2 Tool Pool Assembly 6.2
+工具池组件
+
+The assembleToolPool() function at tools.ts is documented as “the single source of truth for combining built-in tools with MCP tools.” The assembly follows a five-step pipeline:
+tools.ts 文件中的 assembleToolPool() 函数被描述为“将内置工具与 MCP 工具组合在一起的唯一数据源”。该组装过程遵循五步流程：
+
+1. Base tool enumeration. getAllBaseTools() (tools.ts) returns an array of up to 54 tools: 19 are always included (such as BashTool, FileReadTool, AgentTool, SkillTool), and 35 more are conditionally included based on feature flags, environment variables, and user type. Anthropic-internal users get additional internal tools. Worktree mode enables EnterWorktreeTool and ExitWorktreeTool. Agent swarms enable team tools. When embedded search tools are available in the Bun binary, dedicated GlobTool and GrepTool are omitted.
+
+基础工具枚举。\`getAllBaseTools()\`（tools.ts）返回一个最多包含 54 个工具的数组：其中 19 个工具始终包含在内（例如 BashTool、FileReadTool、AgentTool、SkillTool），另外 35 个工具则根据功能标志、环境变量和用户类型有条件地包含。Anthropic 内部用户会获得额外的内部工具。工作树模式会启用 \`EnterWorktreeTool\` 和 \`ExitWorktreeTool\`。代理集群会启用团队工具。当 Bun 二进制文件中已包含嵌入式搜索工具时，则会省略专用的 \`GlobTool\` 和 \`GrepTool\`。
+2. Mode filtering. getTools() (tools.ts) applies mode-specific filtering. In CLAUDE\_CODE\_SIMPLE mode, only Bash, Read, and Edit are available (or REPLTool in the REPL branch; plus coordinator tools if applicable). Each tool’s isEnabled() method is called for runtime availability checks.
+
+模式过滤。\`getTools ()\` （ \`tools.ts\` ）应用特定于模式的过滤。在 \`CLAUDE\_CODE\_SIMPLE\` 模式下，仅提供 Bash、读取和编辑工具（或 REPL 分支中的 REPLTool ；以及适用的协调器工具）。每个工具的 \`isEnabled()\` 方法都会被调用以进行运行时可用性检查。
+3. Deny rule pre-filtering. filterToolsByDenyRules() (tools.ts) strips blanket-denied tools from the model’s view before any call.
+
+拒绝规则预过滤。filterToolsByDenyRules () ( tools.ts ) 在任何调用之前，从模型的视图中移除被全面拒绝的工具。
+4. MCP tool integration. MCP tools from appState.mcp.tools are filtered by deny rules and merged with built-in tools.
+
+MCP 工具集成。 来自 appState.mcp.tools 的 MCP 工具会根据拒绝规则进行过滤，并与内置工具合并。
+5. Deduplication. Tools are deduplicated by name, with built-in tools taking precedence over MCP tools.
+
+去重。 工具按名称进行去重，内置工具优先于 MCP 工具。
+
+Both REPL.tsx (via the useMergedTools hook) and AgentTool.tsx (when building the worker tool set) invoke this function, ensuring consistent assembly across all execution paths. At request time, deferred tools may be hidden from the model’s context until explicitly queried via ToolSearch (tools.ts).
+REPL.tsx （通过 useMergedTools 钩子）和 AgentTool.tsx （构建工作工具集时）都会调用此函数，从而确保所有执行路径上的工具集组装一致。在请求时，延迟工具可能会从模型上下文中隐藏，直到通过 ToolSearch（ tools.ts ）显式查询为止。
+
+Agent-based extension (custom agent definitions via.claude/agents/\*.md and plugin-contributed agents) is covered in Section˜8, because agents differ fundamentally from the four mechanisms above: they create new, isolated context windows rather than extending the current one.
+基于代理的扩展（通过.claude/agents/\*.md 自定义代理定义和插件贡献的代理）在第 8 节中介绍，因为代理与上述四种机制有着根本的不同：它们创建新的、隔离的上下文窗口，而不是扩展当前的上下文窗口。
+
+### 6.3 Why Four Mechanisms? 6.3
+为什么是四种机制？
+
+Given that each additional extension mechanism increases the surface area developers must learn, a natural question is why Claude Code uses four distinct mechanisms rather than consolidating into one or two. The answer lies in the observation that different kinds of extensibility impose different costs on the context window, and a single mechanism cannot span the full range from zero-context lifecycle hooks to schema-heavy tool servers without forcing unnecessary trade-offs on extension authors.
+鉴于每增加一种扩展机制都会增加开发者需要学习的范围，一个自然而然的问题是：Claude Code 为什么使用四种不同的机制，而不是将其简化为一两种？答案在于：不同类型的可扩展性对上下文窗口的影响各不相同，单一机制无法涵盖从零上下文的生命周期钩子到模式繁重的工具服务器的所有范围，否则就会迫使扩展开发者做出不必要的权衡。
+
+Table 2: What each extension mechanism uniquely provides. Context cost refers to how much of the bounded context window the mechanism consumes when active.
+表 2： 每种扩展机制的独特功能。上下文成本指的是该机制激活时占用的有限上下文窗口大小。
+
+| Mechanism 机制 | Unique Capability 独特能力 | Context Cost 背景成本 | Insertion Point 插入点 |
+| MCP servers MCP 服务器 | External service integration (multi-transport)   外部服务集成（多传输） | High (tool schemas) 高（工具模式） | model():tool pool   模型() ：工具池 |
+| Plugins 插件 | Multi-component packaging + distribution   多组分包装+分销 | Medium (varies) 中等（不固定） | All three points 这三点 |
+| Skills 技能 | Domain-specific instructions + meta-tool invocation   领域特定指令 + 元工具调用 | Low (descriptions only) 低（仅描述） | assemble():context injection   assemble() ：上下文注入 |
+| Hooks 钩子 | Lifecycle interception + event-driven automation   生命周期拦截 + 事件驱动自动化 | Zero by default 默认值为零 | execute():pre/post tool   execute() ：预/后工具 |
+
+As Table˜2 summarizes, each mechanism trades deployment complexity for a different kind of extensibility. MCP servers provide runtime tool integration (the model gains new callable tools) at the cost of server management overhead and context budget consumed by tool schemas. Skills shape *how* the agent thinks (not just what tools it has) at minimal context cost, since only frontmatter descriptions (not full content) stay in the prompt. Hooks provide cross-cutting lifecycle control (blocking, rewriting, or annotating tool calls) with no context footprint by default, though hooks can opt into injecting additional context. Plugins bundle any combination of the other three into distributable packages, acting as the packaging and distribution layer rather than a distinct runtime primitive. The graduated context-cost ordering (zero for hooks, low for skills, medium for plugins, high for MCP) means that cheap extensions can scale widely without exhausting the context window, while expensive ones are reserved for cases that genuinely require new tool surfaces.
+如表 2 所示，每种机制都以部署复杂性换取不同类型的可扩展性。MCP 服务器提供运行时工具集成（模型获得新的可调用工具），但代价是服务器管理开销和工具模式消耗的上下文预算。技能以最小的上下文成本塑造代理的思维 *方式* （而不仅仅是它拥有哪些工具），因为提示中只保留前端描述（而非完整内容）。钩子提供跨领域的生命周期控制（阻塞、重写或注释工具调用），默认情况下不占用任何上下文，但钩子可以选择注入额外的上下文。插件将其他三种机制的任意组合打包成可分发的软件包，充当打包和分发层，而不是独立的运行时原语。这种渐进式的上下文成本排序（钩子为零，技能为低，插件为中，MCP 为高）意味着低成本的扩展可以广泛扩展而不会耗尽上下文窗口，而高成本的扩展则保留用于真正需要新工具接口的情况。
+
+Some agent frameworks provide a single extension mechanism, typically a tool-only API where all customization arrives as additional callable tools. Others use two tiers, separating tools from configuration or instruction injection. Claude Code’s four-mechanism approach can accommodate a broader range of extension patterns, from zero-context event handlers to full external service integrations, but it increases the learning curve developers face when deciding which mechanism to use for a given integration task.
+有些代理框架只提供单一的扩展机制，通常是一个纯工具 API，所有自定义功能都以可调用工具的形式提供。另一些框架则采用两层架构，将工具与配置或指令注入分离。Claude Code 的四机制方法可以兼容更广泛的扩展模式，从零上下文事件处理程序到完整的外部服务集成，但这也增加了开发人员在为特定集成任务选择机制时所面临的学习难度。
+
+## 7 Context Construction and Memory 7
+情境构建与记忆
+
+How an agent manages its context window and persists user instructions is a central design choice, with different systems choosing between file-based transparency, database-backed retrieval, and opaque learned representations. The design choices here implement two principles from Table˜1: *context as scarce resource with progressive management* and *transparent file-based configuration and memory*.
+智能体如何管理其上下文窗口并持久化用户指令是一个核心设计选择，不同的系统会在基于文件的透明性、数据库支持的检索和不透明的学习表示之间进行选择。此处的设计选择实现了表 1 中的两个原则： *将上下文视为稀缺资源并进行渐进式管理* ，以及 *透明的基于文件的配置和内存* 。
+
+By this point in the running example, the task has accumulated state: the original request, the npm test permission outcome, the tool pool assembled in Section˜6, and any file reads or command outputs gathered so far. This section asks how that growing state is packed into Claude Code’s bounded context window before the next model call.
+到目前为止，运行示例中的任务已经积累了状态：原始请求、 npm 测试权限结果、 第 6 节中组装的工具池，以及迄今为止收集到的所有文件读取或命令输出。本节探讨如何在下一次模型调用之前，将这些不断增长的状态打包到 Claude Code 的有界上下文窗口中。
+
+Before the model is called, the agent loop assembles a context window from the tool pool (Section˜6), CLAUDE.md files, auto memory, and conversation history. The following subsections cover the assembly order, the CLAUDE.md hierarchy, and the multi-step compaction pipeline.
+在调用模型之前，代理循环会从工具池（ 第 6 节 ）、CLAUDE.md 文件、自动内存和会话历史记录中组装上下文窗口。以下小节将介绍组装顺序、CLAUDE.md 层级结构和多步骤压缩流程。
+
+### 7.1 Context Window Assembly 7.1
+上下文窗口程序集
+
+![Refer to caption](https://arxiv.org/html/2604.14228v1/x5.png)
+
+Figure 6: Context construction and memory hierarchy. Sources converging on the context window include system prompt, output styles, environment info, the CLAUDE.md hierarchy (managed through directory-specific), auto memory, path-scoped rules, MCP tool names, deferred tool definitions via ToolSearch, conversation history, file reads, command outputs, tool results, subagent summaries, and compact summaries.
+图 6 ： 上下文构建和内存层次结构。汇聚到上下文窗口的来源包括系统提示符、输出样式、环境信息、CLAUDE.md 层次结构（通过目录特定方式管理）、自动内存、路径范围规则、MCP 工具名称、通过 ToolSearch 获取的延迟工具定义、会话历史记录、文件读取、命令输出、工具结果、子代理摘要和精简摘要。
+
+The context window (Figure˜6) is assembled from the following sources, some at initial assembly and others injected late during the turn:
+上下文窗口（ 图 ˜ 6 ）由以下来源组成，有些来源在初始组装时加入，有些来源在回合后期注入：
+
+1. System prompt, incorporating output style modifications and any --append-system-prompt flag content.
+
+系统提示符 ，包含输出样式修改和任何 --append-system-prompt 标志内容。
+2. Environment info via getSystemContext() (context.ts): git status (skipped in remote mode or when git instructions are disabled) and an optional cache-breaking injection for internal builds (gated by BREAK\_CACHE\_COMMAND). Memoized once per session.
+
+通过 getSystemContext() ( context.ts ) 获取环境信息 ：git 状态（远程模式或禁用 git 指令时跳过）以及用于内部构建的可选缓存破坏注入（受 BREAK\_CACHE\_COMMAND 控制）。每个会话缓存一次。
+3. CLAUDE.md hierarchy via getUserContext() (context.ts): four-level instruction file hierarchy (Section˜7.2). Also memoized.
+
+通过 getUserContext() ( context.ts ) 获取 CLAUDE.md 层次结构 ：四级指令文件层次结构（ 第 7.2 节 ）。也已进行记忆化。
+4. Path-scoped rules: conditional and directory-matched rules that load lazily when the agent reads files in matching directories.
+
+5. Auto memory: contextually relevant memory entries prefetched asynchronously.
+路径作用域规则 ：条件规则和目录匹配规则，当代理读取匹配目录中的文件时延迟加载。
+
+6. Tool metadata: skill descriptions, MCP tool names, and deferred tool definitions (via ToolSearch, on demand).
+自动内存 ：异步预取上下文相关的内存条目。
+
+工具元数据： 技能描述、MCP 工具名称和延迟工具定义（通过 ToolSearch 按需提供）。
+7. Conversation history: carried forward, subject to compaction.
+
+8. Tool results: file reads, command outputs, subagent summaries.
+对话历史 ：延续，但需进行压缩。
+
+9. Compact summaries: replacing older history segments.
+工具结果 ：文件读取、命令输出、子代理摘要。
+
+精简摘要 ：取代旧的历史章节。
+
+The system prompt assembly at query.ts combines system context with the base prompt via asSystemPrompt(appendSystemContext(systemPrompt, systemContext))(). User context (CLAUDE.md and date) is prepended to the message array via prependUserContext(). This separation means CLAUDE.md content occupies a different structural position in the API request than the system prompt, potentially affecting model attention patterns.
+query.ts 中的系统提示符组件通过 asSystemPrompt(appendSystemContext(systemPrompt, systemContext))() 将系统上下文与基础提示符合并。用户上下文（CLAUDE.md 和日期）通过 prependUserContext() 添加到消息数组的前面。这种分离意味着 CLAUDE.md 的内容在 API 请求中占据与系统提示符不同的结构位置，这可能会影响模型的注意力模式。
+
+Several context sources are injected late, after the main window is constructed: relevant-memory prefetch (query.ts), MCP instructions deltas (only new or changed server instructions), agent listing deltas, and background agent task notifications. The context window is therefore not static at assembly time but can grow during the turn.
+一些上下文源是在主窗口构建完成后才注入的：相关内存预取（ query.ts ）、MCP 指令增量（仅限新增或已更改的服务器指令）、代理列表增量以及后台代理任务通知。因此，上下文窗口在汇编时并非静态不变，而是在回合期间会不断增长。
+
+### 7.2 CLAUDE.md Hierarchy and Auto Memory7.2 CLAUDE.md
+层次结构和自动内存
+
+A design principle shapes the memory system: stored context should be inspectable and editable by the user. CLAUDE.md files are plain-text Markdown rather than structured configuration or opaque database entries. This transparency choice trades expressiveness for auditability: users can read, edit, version-control, and delete any instruction the agent sees (mindstudio2025memory). Alternative memory architectures illustrate the trade-off. Retrieval-augmented approaches use embedding-based lookup to surface relevant prior context, gaining flexibility at the cost of inspectability: the user cannot easily see or edit what the retrieval system considers relevant. Database-backed memory offers structured querying but requires additional infrastructure and is opaque to version control. Claude Code’s file-based approach makes every instruction the agent sees directly readable, editable, and committable alongside the codebase. The system does not use embeddings or a vector similarity index for memory retrieval; instead it uses an LLM-based scan of memory-file headers to select up to five relevant files on demand, surfacing them at file granularity rather than entry granularity. Embedding-based systems can retrieve individual entries more selectively, at the cost of inspectability and the infrastructure needed to maintain an index.
+内存系统的设计原则是：存储的上下文应可供用户查看和编辑。CLAUDE.md 文件是纯文本 Markdown 格式，而非结构化配置或不透明的数据库条目。这种透明性选择以表达能力为代价换取了可审计性：用户可以读取、编辑、版本控制和删除代理看到的任何指令 （ mindstudio2025memory ） 。其他内存架构也体现了这种权衡。检索增强型方法使用基于嵌入的查找来呈现相关的先前上下文，以牺牲可查看性为代价来获得灵活性：用户无法轻易查看或编辑检索系统认为相关的内容。数据库支持的内存提供结构化查询，但需要额外的基础设施，并且对版本控制不透明。Claude Code 的基于文件的方法使得代理看到的每条指令都可以直接与代码库一起读取、编辑和提交。该系统不使用嵌入或向量相似性索引进行内存检索；它采用基于 LLM 的内存文件头扫描，按需选择最多五个相关文件，并以文件粒度而非条目粒度呈现它们。基于嵌入的系统可以更有选择性地检索单个条目，但代价是可检查性降低以及维护索引所需的基础设施。
+
+CLAUDE.md files follow a multi-level loading hierarchy. The source header (claudemd.ts) defines four memory types:
+CLAUDE.md 文件遵循多级加载层次结构。源头文件（ claudemd.ts ）定义了四种内存类型：
+
+1. Managed memory (e.g. /etc/claude-code/CLAUDE.md on Linux): OS-level policy for all users.
+
+管理内存 （例如 Linux 上的 /etc/claude-code/CLAUDE.md ）：适用于所有用户的操作系统级策略。
+2. User memory (~/.claude/CLAUDE.md): private global instructions.
+
+用户内存 （ ~/.claude/CLAUDE.md ）：私有全局指令。
+3. Project memory (CLAUDE.md,.claude/CLAUDE.md, and.claude/rules/\*.md in project roots): instructions checked into the codebase.
+
+项目内存 （项目根目录中的 CLAUDE.md 、.claude/CLAUDE.md 和.claude/rules/\*.md ）：已检入代码库的指令。
+4. Local memory (CLAUDE.local.md in project roots): gitignored, for private project-specific instructions.
+
+本地内存 （项目根目录中的 CLAUDE.local.md ）：已忽略，用于私有项目特定指令。
+
+File discovery traverses from the current directory up to root, checking for all project and local memory files in each directory. Files closer to the current directory have higher priority (loaded later).
+文件查找过程从当前目录向上遍历到根目录，检查每个目录中的所有项目文件和本地内存文件。距离当前目录越近的文件优先级越高（加载较晚）。
+
+Files load in “reverse order of priority”: later-loaded files receive more model attention. For root-to-CWD directories, unconditional rules from.claude/rules/\*.md load eagerly at startup. For nested directories below CWD, even unconditional rules are loaded lazily when the agent reads files in matching directories. This means the model’s instruction set can evolve during a conversation as new parts of the codebase are explored.
+文件加载遵循“优先级反向顺序”：后加载的文件会获得更多模型关注。对于根目录到当前工作目录 (CWD) 的目录，.claude/rules/\*.md 中的无条件规则会在启动时立即加载。对于 CWD 下的嵌套目录，即使是无条件规则也会在代理读取匹配目录中的文件时才延迟加载。这意味着随着对代码库新部分的探索，模型的指令集可以在对话过程中不断演进。
+
+CLAUDE.md content is delivered as user context (a user message), not as system prompt content (context.ts). This architectural choice has a significant implication: because CLAUDE.md content is delivered as conversational context rather than system-level instructions, model compliance with these instructions is probabilistic rather than guaranteed. Permission rules evaluated in deny-first order (Section˜5) provide the deterministic enforcement layer. This creates a deliberate separation between guidance (CLAUDE.md, probabilistic) and enforcement (permission rules, deterministic). The function calls setCachedClaudeMdContent() to cache the loaded content for the auto-mode classifier, to avoid an import cycle between the CLAUDE.md loader and the permission system.
+CLAUDE.md 的内容以用户上下文（用户消息）的形式传递，而非以系统提示内容（ context.ts ）的形式传递。这种架构选择意义重大：由于 CLAUDE.md 的内容是以对话上下文而非系统级指令的形式传递，因此模型对这些指令的遵守情况是概率性的，而非绝对保证的。权限规则按照“拒绝优先”的顺序进行评估（ 参见第 5 节 ），从而提供确定性的执行层。这使得指导（CLAUDE.md，概率性）和执行（权限规则，确定性）之间实现了有意的分离。该函数调用 setCachedClaudeMdContent() 来缓存自动模式分类器加载的内容，以避免 CLAUDE.md 加载器和权限系统之间出现循环导入。
+
+Memory files support an @include directive for modular instruction sets (processMemoryFile() at claudemd.ts). Syntax variants include @path, @./relative, @~/home, and @/absolute. The directive works in leaf text nodes only (not inside code blocks). In the implementation, the including file is pushed first and included files are appended after it, circular references are prevented by tracking processed paths, and non-existent files are silently ignored.
+内存文件支持模块化指令集的 \`@include\` 指令（参见 claudemd.ts 中的 \`processMemoryFile()\` 函数 ）。语法变体包括 \`@path\` 、 \`@./relative\` 、 \`@~/home\` 和 \`@/absolute\` 。该指令仅在叶子文本节点中有效（不适用于代码块内部）。在实现中，包含文件会被首先推送，被包含的文件会追加到其后；通过跟踪已处理路径来防止循环引用；不存在的文件会被静默忽略。
+
+### 7.3 Compaction Pipeline 7.3
+压实管道
+
+The five-layer compaction pipeline (Section˜4.3) implements the “context as bottleneck” principle through graduated compression (query.ts). Rather than a single strategy, Claude Code applies five layers in sequence, each with increasing aggressiveness (three are gated by feature flags; budget reduction is always active, while auto-compact is user-configurable). This graduated approach contrasts with simpler alternatives: many agent frameworks use single-pass truncation (dropping the oldest messages) or a single summarization step. The graduated design reflects a lazy-degradation principle: apply the least disruptive compression first, escalating only when cheaper strategies prove insufficient. The cost of this approach is complexity. Five interacting compression layers, several gated by feature flags, create behavior that is difficult for users to fully predict. Auto-compact produces a visible summary in the transcript, and microcompact emits a boundary marker, but context collapse operates without user-visible output. Simpler single-pass approaches sacrifice information but are easier to reason about.
+五层压缩流水线（ 第 4.3 节 ）通过分级压缩（ query.ts ）实现了“上下文即瓶颈”原则。Claude Code 并没有采用单一策略，而是依次应用五层压缩，每层压缩的强度递增（其中三层由特征标志控制；预算削减始终处于激活状态，而自动压缩则可由用户配置）。这种分级方法与更简单的替代方案形成对比：许多代理框架使用单次截断（丢弃最旧的消息）或单次摘要步骤。分级设计体现了“延迟降级”原则：首先应用干扰最小的压缩，仅在更便宜的策略不足以满足需求时才升级。这种方法的代价是复杂性。五个相互作用的压缩层，其中几个由特征标志控制，导致用户难以完全预测其行为。自动压缩会在转录文本中生成可见的摘要，微压缩会发出边界标记，但上下文折叠不会产生用户可见的输出。更简单的单次方法虽然会牺牲信息，但更容易理解。
+
+1. Budget reduction (always active): per-tool-result size limits.
+
+2. Snip (HISTORY\_SNIP): lightweight older-history trimming.
+预算削减 （始终有效）：每个工具的结果大小限制。
+
+剪枝 （ HISTORY\_SNIP ）：轻量级旧历史记录修剪。
+3. Microcompact (CACHED\_MICROCOMPACT): fine-grained cache-aware compression.
+
+微压缩 （ CACHED\_MICROCOMPACT ）：细粒度缓存感知压缩。
+4. Context collapse (CONTEXT\_COLLAPSE): read-time virtual projection over history.
+
+上下文折叠 （ CONTEXT\_COLLAPSE ）：读取时对历史记录的虚拟投影。
+5. Auto-compact (enabled by default, can be disabled): full model-generated summary.
+
+自动压缩 （默认启用，可禁用）：完整的模型生成摘要。
+
+The buildPostCompactMessages() function (compact.ts) returns the following compacted output structure: \[boundaryMarker,...summaryMessages,...messagesToKeep,...attachments,...hookResults\]. The boundary marker is annotated with preserved-segment metadata via annotateBoundaryWithPreservedSegment(), recording headUuid, anchorUuid, and tailUuid to enable read-time chain patching. This mostly-append design means compaction never modifies or deletes previously written transcript lines; it only appends new boundary and summary events.
+\`buildPostCompactMessages() \` 函数（\` compact.ts\` ）返回以下压缩后的输出结构： \`\[boundaryMarker,...summaryMessages,...messagesToKeep,...attachments,...hookResults\]\` 。边界标记通过 \`annotateBoundaryWithPreservedSegment()\` 函数添加保留片段元数据，记录 \`headUuid\` 、 \`anchorUuid\` 和 \`tailUuid\`， 以便进行读取时链式修补。这种主要采用追加方式的设计意味着压缩过程不会修改或删除先前写入的转录行；它只会追加新的边界事件和摘要事件。
+
+The compaction function compactConversation() (compact.ts) includes several design choices. Pre-compact hooks fire first, allowing hook-injected custom instructions. A GrowthBook feature flag controls whether the compaction path reuses the main conversation’s prompt cache (a code comment documents a January 2026 experiment: “false path is 98% cache miss, costs $\sim$ 0.76% of fleet cache\_creation”). After compaction, attachment builders re-announce runtime state (plans, skills, and async agents) from live app state, since compaction discards prior attachment messages but not the underlying state.
+压缩函数 compactConversation() ( compact.ts ) 包含多项设计选择。压缩前的钩子会首先触发，从而允许注入自定义指令。GrowthBook 的一个特性标志控制压缩路径是否重用主对话的提示缓存（代码注释记录了 2026 年 1 月的一项实验：“否路径的缓存未命中率高达 98%，成本为 fleet cache\_creation 的 0.76%”）。压缩后，附件构建器会根据实时应用状态重新发布运行时状态（计划、技能和异步代理），因为压缩会丢弃之前的附件消息，但不会丢弃底层状态。
+
+Context isolation becomes more critical when the system delegates work to subagents, each operating in its own bounded context window.
+当系统将工作委派给子代理，每个子代理都在其自身限定的上下文窗口中运行时，上下文隔离就变得更加重要。
+
+## 8 Subagent Delegation and Orchestration 8
+子代理委托和协调
+
+Multi-agent orchestration is a key design dimension for coding agents, with choices spanning parent-child hierarchies, peer-based conversation frameworks (wu2024autogen), and graph-structured workflow engines (langgraph2024). Claude Code’s delegation architecture implements the *isolated subagent boundaries* principle from Table˜1, together with aspects of *deny-first with human escalation* (permission override) and *reversibility-weighted risk assessment* (subagent tool restrictions).
+多智能体编排是智能体编码的一个关键设计维度，其选择范围涵盖父子层级结构、基于对等的对话框架 （ wu2024autogen ） 和图结构工作流引擎 （ langgraph2024 ） 。Claude Code 的委托架构实现了表 ˜ 1 中的 *隔离子智能体边界* 原则，以及 *先拒绝后人工升级* （权限覆盖）和 *可逆性加权风险评估* （子智能体工具限制）等方面的机制。
+
+When Claude determines that the auth test fix requires first exploring the authentication module’s structure, it can delegate this exploration to a subagent. The delegation mechanism is the Agent tool (AgentTool.tsx), with Task retained as a legacy alias. The model invokes Agent with a structured input including the delegation prompt, an optional subagent type, and configuration for isolation mode, permission overrides, and working directory.
+当 Claude 确定身份验证测试修复需要先探索身份验证模块的结构时，它可以将此探索工作委托给一个子代理。委托机制是 Agent 工具（ AgentTool.tsx ）， Task 则作为旧版别名保留。该模型使用结构化输入调用 Agent ，这些输入包括委托提示、可选的子代理类型以及隔离模式、权限覆盖和工作目录的配置。
+
+### 8.1 The Agent Tool and Delegation Criteria 8.1
+代理工具和委托标准
+
+![Refer to caption](https://arxiv.org/html/2604.14228v1/x6.png)
+
+Figure 7: Subagent isolation and delegation architecture. The Agent tool dispatches to built-in subagents (Explore, Plan, general-purpose) or custom subagents, each running in an isolated context with rebuilt permission context and independent tool sets. The Agent tool dispatches along three axes: routing (teammate), isolation (remote, worktree), and lifecycle (async, sync).
+图 7 ： 子代理隔离和委托架构。代理工具将任务分发给内置子代理（探索、规划、通用）或自定义子代理，每个子代理都在具有重建权限上下文和独立工具集的隔离环境中运行。代理工具沿三个维度进行任务分发：路由（队友）、隔离（远程、工作树）和生命周期（异步、同步）。
+
+The Agent tool input schema (Figure˜7) uses feature-gated fields, omitting optional parameters when their backing features are disabled. The isolation field offers \[’worktree’, ’remote’\] for internal users and \[’worktree’\] for external users, determined at build time. The cwd field is gated by a feature flag. The run\_in\_background field is omitted when background tasks are disabled or when fork-subagent mode is enabled.
+代理工具的输入模式（ 图 7 ）使用功能门控字段，当其支持的功能被禁用时，可选参数将被省略。 隔离字段为内部用户提供 \['worktree', 'remote'\] ，为外部用户提供 \['worktree'\] ，此值在构建时确定。 当前工作目录 (cwd) 字段由功能标志控制。当后台任务被禁用或启用 fork-subagent 模式时， run\_in\_background 字段将被省略。
+
+Claude Code provides up to six built-in subagent types, depending on feature flags and entrypoint:
+Claude Code 提供多达六种内置子代理类型，具体取决于功能标志和入口点：
+
+- Explore: primarily read/search-oriented investigation, with write and edit tools in its deny-list.
+
+Explore ：主要以阅读/搜索为导向的调查，禁止使用写作和编辑工具。
+- Plan: creates structured plans; execution proceeds through the standard permission model.
+
+- General-purpose: broadly capable, used when explicitly requested (note: omitting the type may route to the fork-subagent path instead).
+计划 ：创建结构化计划；执行通过标准权限模型进行。
+
+通用型 ：功能广泛，仅在明确请求时使用（注意：省略类型可能会路由到 fork-subagent 路径）。
+- Claude Code Guide: onboarding and documentation assistance, with its own permissionMode override.
+
+Claude Code 指南 ：提供入门和文档协助，并具有自己的 permissionMode 覆盖功能。
+- Verification: runs validation checks (test suites, linting).
+
+- Statusline-setup: specialized for terminal status line configuration.
+验证 ：运行验证检查（测试套件、代码检查）。
+
+Statusline-setup ：专门用于终端状态线配置。
+
+Beyond built-ins, users define custom subagents via.claude/agents/\*.md files, and plugins contribute agent definitions via loadPluginAgents.ts. The markdown body of each file serves as the agent’s system prompt, and YAML frontmatter specifies configuration fields including description, tools (allowlist), disallowedTools, model, effort, permissionMode, mcpServers, hooks, maxTurns, skills, memory scope, background flag, and isolation mode. JSON-formatted agent definitions support the same fields plus prompt as an explicit field (loadAgentsDir.ts). This means a custom agent can be a fully configured, isolated sub-system with its own tools, model, permissions, hooks, memory scope, and isolation mode. AgentTool sits alongside SkillTool in the base tool pool as a meta-tool that dispatches to these definitions, but the two differ fundamentally: SkillTool injects instructions into the current context window, while AgentTool spawns a new, isolated one. The tradeoff is that most subagent invocations require a self-contained prompt, because the default path does not inherit the parent’s conversation history (the fork-subagent path is an exception). Conversation-based frameworks that share full transcript histories avoid this cost but risk context explosion as the number of agents grows.
+除了内置代理之外，用户还可以通过 \`.claude/agents/\*.md\` 文件定义自定义子代理，插件则通过 \`loadPluginAgents.ts\` 文件贡献代理定义。每个文件的 Markdown 正文都作为代理的系统提示符，而 YAML 前置元数据则指定了配置字段，包括描述 、 工具 （允许列表）、 禁用工具 、 模型 、 工作量 、 权限模式 、 mcpServers 、 钩子 、 最大回合数 、 技能 、 内存范围、 后台标志和隔离模式。JSON 格式的代理定义支持相同的字段，此外还允许将提示符作为显式字段（\` loadAgentsDir.ts\` ）。这意味着自定义代理可以是一个完全配置的、隔离的子系统，拥有自己的工具、模型、权限、钩子、内存范围和隔离模式 。\`AgentTool\` 与 \`SkillTool\` 一起作为元工具存在于基础工具池中，负责分发这些定义，但两者之间存在根本区别： \`SkillTool\` 将指令注入到当前上下文窗口中，而 \`AgentTool\` 则会生成一个新的、隔离的上下文窗口。权衡之处在于，大多数子代理调用都需要一个独立的提示，因为默认路径不会继承父代理的对话历史记录（分支子代理路径除外）。共享完整对话记录的基于对话的框架可以避免这种开销，但随着代理数量的增长，可能会出现上下文爆炸的风险。
+
+### 8.2 Isolation Architecture 8.2
+隔离架构
+
+Subagent isolation supports multiple modes (AgentTool.tsx):
+子代理隔离支持多种模式（ AgentTool.tsx ）：
+
+- Worktree: Creates a temporary git worktree, giving the subagent its own copy of the repository to modify without affecting the parent’s working tree.
+
+工作树 ：创建一个临时的 git 工作树，使子代理拥有自己的存储库副本进行修改，而不会影响父代理的工作树。
+- Remote (internal-only): Launches in a remote Claude Code Remote environment, always running in the background.
+
+远程 （仅限内部）：在远程 Claude Code Remote 环境中启动，始终在后台运行。
+- In-process (default): Shares the filesystem with the parent but operates in an isolated conversation context.
+
+进程内 （默认）：与父进程共享文件系统，但在隔离的会话上下文中运行。
+
+The permission override logic for subagents (runAgent.ts) involves several specific rules. When a subagent defines a permissionMode, the override is applied unless the parent is already in bypassPermissions, acceptEdits, or auto mode, since those modes always take precedence because they represent explicit user decisions about the safety/autonomy trade-off. For async agents, the system determines whether to avoid prompts through a cascade: explicit canShowPermissionPrompts first, then bubble mode (always show, since they escalate to the parent terminal), then the default (sync agents show prompts, async agents do not). Background agents that can show prompts set awaitAutomatedChecksBeforeDialog: true, ensuring the classifier and hooks resolve before interrupting the user.
+子代理的权限覆盖逻辑（ runAgent.ts ）涉及几条特定规则。当子代理定义权限模式时，除非父代理已处于 bypassPermissions 、 acceptEdits 或 auto 模式，否则该覆盖将生效。因为这些模式始终优先，它们代表了用户对安全性和自主性权衡的明确选择。对于异步代理，系统通过级联方式决定是否避免提示：首先是显式设置 canShowPermissionPrompts ，然后是冒泡模式（始终显示，因为它们会升级到父终端），最后是默认值（同步代理显示提示，异步代理不显示）。可以显示提示的后台代理会设置 awaitAutomatedChecksBeforeDialog: true ，以确保分类器和钩子在中断用户之前解析完成。
+
+These isolation modes occupy different points in a design space. Container-based isolation (used by SWE-Agent and OpenHands (yang2024sweagent; wang2024openhands)) provides stronger resource boundaries but requires container infrastructure. Context-only isolation (used by conversation-based frameworks like AutoGen (wu2024autogen)) shares the filesystem but separates conversation histories. Claude Code’s worktree-based isolation provides filesystem-level separation with zero external dependencies, leveraging Git’s built-in mechanism rather than introducing container orchestration.
+这些隔离模式在设计空间中占据不同的位置。基于容器的隔离（SWE-Agent 和 OpenHands ( yang2024sweagent; wang2024openhands ) 使用）提供了更强的资源边界，但需要容器基础设施。仅上下文隔离（AutoGen ( wu2024autogen ) 等基于对话的框架使用）共享文件系统，但隔离了对话历史记录。Claude Code 的基于工作树的隔离提供了文件系统级别的隔离，无需任何外部依赖，它利用了 Git 的内置机制，而不是引入容器编排。
+
+When allowedTools is explicitly provided to runAgent() (runAgent.ts), a two-tier permission scoping model applies. SDK-level permissions from --allowedTools are preserved: “explicit permissions from the SDK consumer that should apply to all agents.” But session-level rules are replaced with the subagent’s declared allowedTools. When allowedTools is not provided (the common AgentTool path), the parent’s session-level rules are inherited without replacement.
+当 \`runAgent()\` 函数 （ \`runAgent.ts\` ）显式地提供 \`allowedTools\` 参数时，会应用两层权限范围模型。\` --allowedTools\` 参数中指定的 SDK 级权限会被保留：“SDK 使用者提供的、适用于所有代理的显式权限”。但会话级规则会被子代理声明的 \`allowedTools\` 参数替换。如果未提供 \`allowedTools\` 参数 （即使用通用的 \`AgentTool\` 路径），则会继承父代理的会话级规则而不进行替换。
+
+### 8.3 Sidechain Transcripts 8.3
+侧链转录本
+
+Each subagent writes its own transcript as a separate.jsonl file with a.meta.json metadata file (sessionStorage.ts, runAgent.ts). This sidechain design means subagent histories are preserved for debugging and auditing but do not inflate the parent’s session file. Only the subagent’s final response text and metadata return to the parent conversation context; the full subagent history never enters the parent’s context window, respecting the “context as bottleneck” principle.
+
+The runAgent() function accepts 21 parameters covering agent definition, prompts, permissions, tools, model settings, isolation, and callbacks.
+runAgent() 函数接受 21 个参数，涵盖代理定义、提示、权限、工具、模型设置、隔离和回调。
+
+The summary-only return model is a deliberate context-conservation choice: conversation-based frameworks that share full transcript histories between agents risk context explosion as the number of agents grows. Even isolated-context parallelism carries substantial cost. Claude Code’s agent teams consume approximately 7 $\times$ the tokens of a standard session in plan mode (anthropic2025agentteams), which makes summary-only return more critical when subagents are also in isolated contexts.
+仅返回摘要的模型是一种刻意为之的上下文保护选择：基于对话的框架如果允许代理之间共享完整的对话记录，随着代理数量的增长，将面临上下文爆炸的风险。即使是孤立上下文的并行处理也会带来相当大的开销。Claude Code 的代理团队在计划模式下消耗的令牌数量约为标准会话的 7 倍 （ anthropic2025agentteams ） ，这使得当子代理也处于孤立上下文中时，仅返回摘要就显得尤为重要。
+
+For multi-instance coordination in agent teams, the harness uses file locking rather than a message broker or distributed coordination service (anthropic2025agentteams). Tasks are claimed from a shared list via lock-file-based mutual exclusion, with lock files stored at predictable filesystem paths. This trades throughput for two properties: zero-dependency deployment (no external infrastructure required) and full debuggability (any agent’s state can be inspected by reading plain-text JSON files).
+为了实现代理团队中的多实例协调，该框架使用文件锁定而非消息代理或分布式协调服务 （ anthropic2025agentteams ） 。任务通过基于锁定文件的互斥机制从共享列表中获取，锁定文件存储在可预测的文件系统路径中。这种方式牺牲了吞吐量，换取了两个优势：零依赖部署（无需外部基础设施）和完全可调试性（可以通过读取纯文本 JSON 文件来检查任何代理的状态）。
+
+## 9 Session Persistence and Recovery 9.
+疗程坚持与恢复
+
+Session persistence in coding agents involves a design choice between append-only logs, structured databases, checkpoint-based snapshots, and stateless architectures, each with different trade-offs in auditability, query power, and deployment complexity. Claude Code’s persistence design implements the *append-only durable state* principle from Table˜1. Session-scoped permissions live in memory only and are not serialized to the transcript, so resume rebuilds the permission context from CLI args and disk settings; requests the rebuilt context does not recognize fall back to deny-first prompting.
+编码代理中的会话持久化涉及多种设计方案的选择，包括仅追加日志、结构化数据库、基于检查点的快照和无状态架构，每种方案在可审计性、查询能力和部署复杂性方面各有优劣。Claude Code 的持久化设计实现了表 1 中的 *仅追加持久状态* 原则。会话范围的权限仅存在于内存中，不会序列化到记录中，因此恢复操作会根据 CLI 参数和磁盘设置重建权限上下文；如果请求重建的上下文无法识别，则会回退到先拒绝后提示的机制。
+
+By the time the auth-test task reaches this section, the session contains the original prompt, tool invocations and results, compact boundaries, and the subagent summary from exploring the authentication module (Section˜8). This section asks which of those artifacts are durably recorded and what can be recovered later without carrying forward the session’s old permission grants.
+当身份验证测试任务执行到此部分时，会话包含原始提示、工具调用和结果、紧凑边界以及探索身份验证模块的子代理摘要（ 第 8 节 ）。本部分询问哪些信息会被永久记录，哪些信息可以在不沿用会话旧权限的情况下稍后恢复。
+
+Claude Code’s persistence mechanisms write the conversation (messages, tool results, and compact boundaries) to disk as events occur.
+
+### 9.1 Transcript Model
+
+![Refer to caption](https://arxiv.org/html/2604.14228v1/x7.png)
+
+Figure 8: Session persistence and context compaction. The diagram separates live session state (context window, compaction) from durable storage (session transcripts, history.jsonl, subagent sidechains, checkpoints). Resume and fork restore messages but not session-scoped permissions.
+图 8 ： 会话持久性和上下文压缩。该图将实时会话状态（上下文窗口、压缩）与持久存储（会话记录、history.jsonl、子代理侧链、检查点）分开。恢复和分支操作会恢复消息，但不会恢复会话范围的权限。
+
+Session transcripts are stored as mostly append-only JSONL files at a project-specific path (with explicit cleanup rewrites as an exception) (Figure˜8). The getTranscriptPath() function (sessionStorage.ts) computes this as join(projectDir, ${getSessionId()}.jsonl), where projectDir is determined by first checking getSessionProjectDir() (set by switchSession() during resume/branch) and falling back to getProjectDir(getOriginalCwd())().
+会话记录主要以追加式 JSONL 文件的形式存储在项目特定的路径中（显式清理重写除外）（ 图 ˜ 8 ）。getTranscriptPath () 函数（ sessionStorage.ts ）通过 join(projectDir, ${getSessionId()}.jsonl) 计算此路径，其中 projectDir 首先通过检查 getSessionProjectDir() （在恢复/分支期间由 switchSession() 设置）来确定，如果失败则回退到 getProjectDir(getOriginalCwd())() 。
+
+Three persistence channels operate independently:
+三个持续性通道独立运行：
+
+1. Session transcripts: Conversation records including user, assistant, attachment, and system messages, plus compaction and other metadata events. Project-scoped, one file per session.
+
+2. Global prompt history: User prompts only, stored in history.jsonl at the Claude configuration home directory (history.ts). The makeHistoryReader() generator yields entries in reverse order via readLinesReverse(), supporting Up-arrow and ctrl+r navigation.
+会话记录 ：包含用户、助手、附件和系统消息的对话记录，以及压缩和其他元数据事件。项目范围，每个会话一个文件。
+
+全局提示历史记录 ：仅包含用户提示，存储在 Claude 配置主目录（ history.ts ）下的 history.jsonl 文件中。makeHistoryReader () 生成器通过 readLinesReverse() 函数反向生成记录，支持向上箭头和 Ctrl+R 导航。
+3. Subagent sidechains: Separate.jsonl +.meta.json files per subagent (Section˜8.3).
+
+Session transcripts store several kinds of events beyond simple messages, including compaction markers, file-history snapshots, attribution snapshots, and content-replacement records. The append-only JSONL format is a deliberate choice favoring auditability and simplicity over query power. Every event is human-readable, version-controllable, and reconstructable without specialized tooling. Database-backed alternatives would enable richer queries over session history but introduce deployment dependencies and reduce transparency.
+
+The session identity system pairs sessionId with sessionProjectDir, set together during resume or branch. The transcript path must use the same project directory that was active when messages were written, to avoid hooks looking in the wrong directory.
+
+### 9.2 Resume, Fork, and Not Restoring Permissions
+
+The --resume flag rebuilds the conversation by replaying the transcript (conversationRecovery.ts). Fork creates a new session from an existing one (commands/branch/branch.ts). However, resume and fork do not restore session-scoped permissions; users must grant them again in the new session. This is a deliberate safety-conservative design choice: sessions are treated as isolated trust domains. Restoring previously granted permissions on resume would create a convenience benefit but risk carrying stale trust decisions into a changed context. The architecture opts for re-granting over implicit persistence, accepting user friction as the cost of maintaining the safety invariant that trust is always established in the current session.
+\`--resume\` 标志会通过重放会话记录（ conversationRecovery.ts ）来重建对话。\`fork\` 则会从现有会话创建一个新会话（ commands/branch/branch.ts ）。然而，\`resume\` 和 \`fork\` 并不会恢复会话范围内的权限；用户必须在新会话中重新授予这些权限。这是一种出于安全考虑而做出的谨慎设计选择：会话被视为独立的信任域。在 \`resume\` 时恢复先前授予的权限虽然会带来便利，但可能会将过时的信任决策带入到已更改的上下文中。该架构选择重新授予权限而非隐式持久化，接受用户操作上的不便作为维护安全不变性的代价，即信任始终在当前会话中建立。
+
+The compact\_boundary marker is carefully designed to work with persistence. The annotateBoundaryWithPreservedSegment() function (compact.ts) records headUuid, anchorUuid, and tailUuid in the boundary event. These UUIDs enable the session loader to patch the message chain at read time: preserved messages keep their original parentUuids on disk, and the loader uses boundary metadata to link them correctly. This mostly-append design means compaction never modifies or deletes previously written transcript lines.
+compact\_boundary 标记经过精心设计，可与持久化机制协同工作。annotateBoundaryWithPreservedSegment () 函数（ compact.ts ）会在边界事件中记录 headUuid 、 anchorUuid 和 tailUuid 。这些 UUID 使会话加载器能够在读取时修补消息链：保留的消息会将其原始的 parentUuid 保存在磁盘上，加载器使用边界元数据来正确链接它们。这种主要采用追加方式的设计意味着压缩操作永远不会修改或删除先前写入的转录行。
+
+The “checkpoints” in Claude Code are file-history checkpoints for --rewind-files, stored at ~/.claude/file-history/<sessionId>/. These are file-level snapshots for reverting filesystem changes, not a generic checkpoint store.
+Claude Code 中的“检查点”是 --rewind-files 的文件历史检查点，存储在 ~/.claude/file-history/<sessionId>/ 中 。这些是用于还原文件系统更改的文件级快照，而不是通用的检查点存储。
+
+The preceding sections have documented Claude Code’s answers to recurring design questions. The next section contrasts Claude Code’s design choices with those of an architecturally independent AI agent system.
+前几节记录了克劳德·科德对一些常见设计问题的解答。下一节将克劳德·科德的设计选择与架构独立的 AI 代理系统的设计选择进行对比。
+
+## 10 Comparative Analysis: Claude Code and OpenClaw 10.
+对比分析：Claude Code 和 OpenClaw
+
+The preceding sections documented Claude Code’s answers to recurring design questions about loop architecture, safety, extensibility, context management, delegation, and persistence. To calibrate these findings, this section compares Claude Code with OpenClaw, an independent open-source AI agent system that answers many of the same design questions from a fundamentally different starting point. OpenClaw is a local-first WebSocket gateway that connects roughly two dozen messaging surfaces (WhatsApp, Telegram, Slack, Discord, Signal, and others) to an embedded agent runtime, with companion apps on macOS, iOS, and Android (openclaw2026). Where Claude Code is a CLI coding harness bound to a single repository session, OpenClaw is a persistent control plane for multi-channel personal assistance. The two systems occupy different regions of the agent design space. The value of the comparison lies in showing how the same recurring questions produce different architectural answers when the deployment context changes.
+前几节记录了 Claude Code 对循环架构、安全性、可扩展性、上下文管理、委托和持久性等常见设计问题的解答。为了校准这些发现，本节将 Claude Code 与 OpenClaw 进行比较。OpenClaw 是一个独立的开源 AI 代理系统，它从截然不同的出发点出发，解答了许多相同的设计问题。OpenClaw 是一个本地优先的 WebSocket 网关，它将大约二十几个消息平台（WhatsApp、Telegram、Slack、Discord、Signal 等）连接到嵌入式代理运行时，并在 macOS、iOS 和 Android 上提供配套应用 （ openclaw2026 ） 。Claude Code 是一个绑定到单个代码库会话的命令行编码工具，而 OpenClaw 则是一个用于多渠道个人助理的持久控制平面。这两个系统占据了代理设计空间的不同区域。比较的价值在于展示，当部署环境发生变化时，相同的常见问题会产生不同的架构答案。
+
+### 10.1 Six Comparison Dimensions 10.1
+六个比较维度
+
+Table˜3 summarizes the comparison across six dimensions. Each dimension corresponds to a design question that both systems must answer.
+表 3 总结了六个维度上的比较结果。每个维度都对应一个设计问题，这两个系统都必须回答这个问题。
+
+Table 3: Architectural comparison: Claude Code vs. OpenClaw across six design dimensions. Each row captures a recurring design question and the different answers the two systems provide.
+表 3 ： 架构比较：Claude Code 与 OpenClaw 在六个设计维度上的对比。每一行都列出了一个反复出现的设计问题以及两个系统提供的不同解决方案。
+
+| Dimension 方面 | Claude Code 克劳德·科德 | OpenClaw |
+| System scope 系统范围 | CLI/IDE coding harness, ephemeral per-session process   CLI/IDE 编码工具，临时会话进程 | Persistent WS gateway daemon, multi-channel control plane   持久性 WS 网关守护进程，多通道控制平面 |
+| Trust model 信任模型 | Deny-first per-action rule evaluation with hooks and optional ML classifier; 7 permission modes; graduated trust spectrum   基于操作的拒绝优先规则评估，支持钩子和可选的机器学习分类器；7 种权限模式；分级信任度 | Single trusted operator per gateway; DM pairing and allowlists for inbound channels; opt-in sandboxing with configurable scope (per-agent, per-session, or shared) and multiple backends   每个网关仅支持一个可信运营商；支持入站通道的 DM 配对和允许列表；支持选择加入的沙箱机制，范围可配置（按代理、按会话或共享），并支持多个后端。 |
+| Agent runtime 代理运行时 | Iterative async generator (queryLoop()) as system center   迭代异步生成器（ queryLoop() ）作为系统中心 | Pi-agent runner embedded inside gateway RPC dispatch; per-session queue serialization (with optional global lane)   Pi-agent 运行器嵌入在网关 RPC 分发中；每个会话的队列序列化（可选全局通道） |
+| Extension architecture 扩展架构 | 4 mechanisms at graduated context costs: MCP, plugins, skills, hooks   四种机制，每种机制都有不同的上下文成本：MCP、插件、技能、钩子 | Manifest-first plugin system with 12 capability types and central registry; separate skills layer; built-in MCP via openclaw mcp (server and outbound client registry)   以清单为先的插件系统，包含 12 种功能类型和中央注册表；独立的技能层；通过 OpenClaw MCP 内置 MCP （服务器和出站客户端注册表） |
+| Memory and context 记忆与情境 | CLAUDE.md 4-level hierarchy; 5-layer compaction pipeline; LLM-based memory scan   CLAUDE.md 四级层次结构；五层压缩流水线；基于 LLM 的内存扫描 | workspace bootstrap files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md, plus conditionally BOOTSTRAP.md, HEARTBEAT.md, and MEMORY.md); separate memory system (MEMORY.md, daily notes, optional DREAMS.md); auto-compaction with pluggable providers; optional hybrid search (vector + keyword, conditional on embedding provider); experimental dreaming for long-term promotion   工作区引导文件（AGENTS.md、SOUL.md、TOOLS.md、IDENTITY.md、USER.md，以及可选的 BOOTSTRAP.md、HEARTBEAT.md 和 MEMORY.md）；独立的记忆系统（MEMORY.md、每日笔记、可选的 DREAMS.md）；支持可插拔提供程序的自动压缩；可选的混合搜索（向量 + 关键词，取决于嵌入提供程序）；用于长期推广的实验性梦境 |
+| Multi-agent and routing 多代理和路由 | Task-delegating subagents (e.g., Explore, Plan, general-purpose); worktree isolation; final response text returned to parent   任务委派子代理（例如，探索、计划、通用）；工作树隔离；最终响应文本返回给父代理 | Two separate concerns: (a) multi-agent routing with isolated agents, distinct workspaces, and binding-based channel dispatch; (b) sub-agent delegation with configurable nesting depth (max 5, default 1, recommended 2) and thread-bound sessions   两个独立的问题：(a) 多代理路由，其中代理之间相互隔离，工作空间各不相同，并采用基于绑定的通道分发；(b) 子代理委托，嵌套深度可配置（最大 5 层，默认 1 层，推荐 2 层），并采用线程绑定会话。 |
+
+#### System scope and deployment model.
+系统范围和部署模型。
+
+Claude Code runs as an ephemeral CLI process bound to a single repository. Each session starts and ends with the terminal. OpenClaw runs as a persistent daemon (default port 18789, loopback-only) that owns all messaging surface connections and coordinates clients, tools, and device nodes over a typed WebSocket protocol. This difference in system scope is the most fundamental architectural divergence: it determines how every other design question is framed. A compositional relationship also exists: OpenClaw can host Claude Code, OpenAI Codex, and Gemini CLI as external coding harnesses through its ACP (Agent Client Protocol) integration, making the two systems stackable rather than purely alternative.
+Claude Code 以绑定到单个代码库的临时命令行进程运行。每个会话都通过终端启动和结束。OpenClaw 则以持久守护进程（默认端口 18789，仅限环回）运行，它拥有所有消息传递接口，并通过类型化的 WebSocket 协议协调客户端、工具和设备节点。这种系统范围的差异是架构上最根本的不同之处：它决定了所有其他设计问题的框架。此外，两者之间还存在组合关系：OpenClaw 可以通过其 ACP（代理客户端协议）集成，将 Claude Code、OpenAI Codex 和 Gemini CLI 作为外部编码工具托管，这使得这两个系统可以叠加使用，而不是纯粹的替代关系。
+
+#### Trust model and security architecture.
+信任模型和安全架构。
+
+The systems address different threat models. Claude Code assumes an untrusted model operating within a trusted developer’s machine: the deny-first permission system (Section˜5) evaluates every tool invocation, the ML classifier provides automated safety assessment, and seven permission modes create a graduated autonomy spectrum. OpenClaw assumes a single trusted operator per gateway instance. Its security architecture begins with identity and access control (DM pairing codes, sender allowlists, gateway authentication) rather than per-action safety classification. Tool policy uses configurable allow/deny lists per agent rather than a centralized classifier. Sandboxing is available as an opt-in feature with multiple backends (Docker, SSH, or OpenShell) and configurable scope (per-agent, per-session, or shared); a non-main mode can sandbox all non-main sessions when enabled, though sandboxing is not active by default. The OpenClaw security documentation explicitly states that hostile multi-tenant isolation on a shared gateway is not a supported security boundary. This difference reflects a design choice about where the trust boundary sits: Claude Code places it between the model and the execution environment; OpenClaw places it at the gateway perimeter.
+这些系统针对不同的威胁模型。Claude Code 假设在受信任的开发者机器上运行的非受信任模型：其“拒绝优先”权限系统（ 第 5 节 ）会评估每次工具调用，机器学习分类器提供自动化的安全评估，七种权限模式构建了一个分级的自主性谱系。OpenClaw 假设每个网关实例只有一个受信任的操作员。其安全架构从身份和访问控制（DM 配对码、发送者允许列表、网关身份验证）入手，而不是基于操作的安全分类。工具策略使用每个代理可配置的允许/拒绝列表，而不是集中式分类器。沙箱功能作为可选功能提供，支持多种后端（Docker、SSH 或 OpenShell）和可配置的范围（每个代理、每个会话或共享）；启用非主模式后，可以对所有非主会话进行沙箱化，但默认情况下沙箱功能处于关闭状态。OpenClaw 安全文档明确指出，在共享网关上进行敌对的多租户隔离并非受支持的安全边界。这种差异反映了信任边界位置的设计选择：Claude Code 将其置于模型和执行环境之间；OpenClaw 将其置于网关边界。
+
+#### Agent runtime and tool orchestration.
+代理运行时和工具编排。
+
+Both systems implement agentic loops, but these loops occupy different positions in their respective architectures. In Claude Code, the queryLoop() async generator (Section˜4) is the system’s center: all interfaces feed into it, and it directly manages context assembly, model calls, tool dispatch, and recovery. In OpenClaw, the agent runtime (an embedded Pi-agent core) sits inside a larger gateway dispatch layer. The gateway’s agent RPC validates parameters, resolves sessions, and returns immediately; the embedded runner then executes the agentic loop while emitting lifecycle and stream events back through the gateway protocol. Runs are serialized through per-session queues and an optional global lane, preventing tool and session races across the multi-channel surface. Both systems follow the ReAct pattern (yao2022react), but OpenClaw’s loop is a component within a control plane rather than the control plane itself.
+这两个系统都实现了代理循环，但这些循环在各自的架构中占据不同的位置。在 Claude Code 中， queryLoop() 异步生成器（ 第 4 节 ）是系统的核心：所有接口都向其提供数据，它直接管理上下文组装、模型调用、工具分发和恢复。在 OpenClaw 中，代理运行时（一个嵌入式 Pi-agent 核心）位于一个更大的网关分发层内。网关的代理 RPC 验证参数、解析会话并立即返回；然后，嵌入式运行器执行代理循环，同时通过网关协议发送生命周期事件和流事件。运行通过每个会话的队列和一个可选的全局通道进行序列化，从而防止在多通道界面上出现工具和会话竞争。这两个系统都遵循 ReAct 模式 （ yao2022react ） ，但 OpenClaw 的循环是控制平面内的一个组件，而不是控制平面本身。
+
+#### Extension architecture.
+扩展架构。
+
+Claude Code’s four extension mechanisms (MCP, plugins, skills, hooks) are organized by context cost (Section˜6): hooks consume zero context, skills consume low context, and MCP servers consume high context. All four extend a single agent’s context window and tool surface. OpenClaw uses a manifest-first plugin system with four architectural layers (discovery, enablement, runtime loading, surface consumption) and twelve capability types including text inference, speech, media understanding, image/music/video generation, web search, and messaging channels. Plugins register capabilities into a central registry; the gateway reads the registry to expose tools, channels, provider setup, hooks, HTTP routes, CLI commands, and services. OpenClaw also has a separate skills layer with multiple sources (workspace, project-level, personal, managed, bundled, and extra directories, with workspace skills taking highest precedence) plus a public registry (ClawHub) and supports MCP through built-in openclaw mcp commands (server and outbound client registry). The key architectural difference is that Claude Code’s extensions modify one agent’s action surface, while OpenClaw’s plugins extend the gateway’s capability surface across all agents.
+Claude Code 的四种扩展机制（MCP、插件、技能、钩子）按上下文成本（ 第 6 节 ）进行组织：钩子消耗零上下文，技能消耗低上下文，而 MCP 服务器消耗高上下文。这四种机制都扩展了单个代理的上下文窗口和工具界面。OpenClaw 使用清单优先的插件系统，该系统具有四个架构层（发现、启用、运行时加载、界面消耗）和十二种功能类型，包括文本推理、语音、媒体理解、图像/音乐/视频生成、网络搜索和消息通道。插件将功能注册到中央注册表中；网关读取注册表以公开工具、通道、提供程序设置、钩子、HTTP 路由、CLI 命令和服务。OpenClaw 还有一个独立的技能层，包含多个来源（工作区、项目级、个人、托管、捆绑和额外目录，其中工作区技能优先级最高），以及一个公共注册表 (ClawHub)，并通过内置的 openclaw mcp 命令（服务器和出站客户端注册表）支持 MCP。主要架构区别在于，Claude Code 的扩展修改了一个代理的操作表面，而 OpenClaw 的插件则扩展了网关在所有代理上的能力表面。
+
+#### Memory, context, and knowledge management.
+记忆、上下文和知识管理。
+
+Both systems use transparent file-based memory rather than opaque databases. Claude Code loads a four-level CLAUDE.md hierarchy and manages context pressure through a five-layer compaction pipeline (Section˜7). Memory retrieval uses an LLM-based scan of file headers. OpenClaw injects workspace bootstrap files into the system prompt at session start: five core files (AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md) plus conditionally BOOTSTRAP.md, HEARTBEAT.md, and MEMORY.md, with large files truncated. Separately, the memory system manages three file types: MEMORY.md for long-term durable facts, date-stamped daily notes (memory/YYYY-MM-DD.md), and an optional DREAMS.md for dreaming sweep summaries. When an embedding provider is configured, memory search uses hybrid retrieval combining vector similarity with keyword matching. An experimental dreaming system performs background consolidation, scoring candidates and promoting only qualified items from short-term recall into long-term memory. Before compaction, OpenClaw automatically reminds the agent to save important notes to memory files, preventing context loss. Both systems share the design commitment to user-visible, editable memory. OpenClaw invests more heavily in structured long-term memory promotion (dreaming, daily notes, memory search), while Claude Code invests more in graduated context compression (five layers with cache awareness). OpenClaw also supports pluggable compaction providers and session pruning, but its compaction pipeline is less graduated than Claude Code’s five-layer system.
+这两个系统都使用透明的基于文件的内存，而非不透明的数据库。Claude Code 加载一个四级 CLAUDE.md 层级结构，并通过五层压缩管道（ 第 7 节 ）管理上下文压力。内存检索使用基于 LLM 的文件头扫描。OpenClaw 在会话启动时将工作区引导文件注入系统提示符：五个核心文件（AGENTS.md、SOUL.md、TOOLS.md、IDENTITY.md 和 USER.md），以及根据情况注入的 BOOTSTRAP.md、HEARTBEAT.md 和 MEMORY.md，其中较大的文件会被截断。此外，内存系统管理三种文件类型：用于长期保存事实的 MEMORY.md 、带有日期戳的每日笔记（ memory/YYYY-MM-DD.md ）以及可选的 DREAMS.md （用于梦境扫描摘要）。配置嵌入提供程序后，记忆搜索采用混合检索方式，结合向量相似性和关键词匹配。一个实验性的梦境系统执行背景整合，对候选项目进行评分，并将合格的项目从短期回忆提升到长期记忆。在压缩之前，OpenClaw 会自动提醒智能体将重要笔记保存到记忆文件中，以防止上下文丢失。两个系统都致力于实现用户可见、可编辑的记忆。OpenClaw 更侧重于结构化的长期记忆提升（梦境、日常笔记、记忆搜索），而 Claude Code 则更侧重于渐进式上下文压缩（五层压缩，并具备缓存感知能力）。OpenClaw 也支持可插拔的压缩提供程序和会话修剪，但其压缩流程不如 Claude Code 的五层系统那样渐进。
+
+#### Multi-agent architecture and routing.
+多智能体架构和路由。
+
+This dimension reveals the starkest architectural difference. Claude Code’s multi-agent model is task delegation: the parent spawns subagents (Explore, Plan, general-purpose, and custom types) that operate in isolated context windows with restricted tool sets and return summary-only results (Section˜8). Worktree isolation provides filesystem-level separation. OpenClaw separates two distinct concerns. First, multi-agent routing: a single gateway can host multiple fully isolated agents, each with its own workspace, authentication profiles, session store, and model configuration, routed to specific channels or senders via deterministic binding rules. Second, sub-agent delegation: within a single agent, background runs can be spawned with configurable nesting depth (maximum 5, default 1, recommended 2), thread-bound sessions on supported channels, and configurable tool policy by depth. OpenClaw’s project vision explicitly rejects agent-hierarchy frameworks as a default architecture. The distinction matters because Claude Code’s subagents are subordinate workers within one user’s coding session, while OpenClaw’s multi-agent routing creates genuinely independent agent instances serving different users or purposes through different channels.
+这一维度揭示了最显著的架构差异。Claude Code 的多代理模型是任务委派：父代理生成子代理（探索、规划、通用和自定义类型），这些子代理在隔离的上下文窗口中运行，使用受限的工具集，并仅返回摘要结果（ 第 8 节 ）。工作树隔离提供了文件系统级别的隔离。OpenClaw 分离了两个不同的关注点。首先是多代理路由：单个网关可以托管多个完全隔离的代理，每个代理都有自己的工作区、身份验证配置文件、会话存储和模型配置，并通过确定性绑定规则路由到特定的通道或发送者。其次是子代理委派：在单个代理内部，可以生成具有可配置嵌套深度（最大 5 层，默认 1 层，推荐 2 层）的后台运行，支持在受支持通道上使用线程绑定会话，并可按深度配置工具策略。OpenClaw 的项目愿景明确拒绝将代理层级框架作为默认架构。这种区别很重要，因为 Claude Code 的子代理是单个用户编码会话中的从属工作者，而 OpenClaw 的多代理路由创建了真正独立的代理实例，通过不同的渠道为不同的用户或目的提供服务。
+
+### 10.2 What the Contrast Reveals 10.2
+对比揭示了什么
+
+The comparison surfaces three observations about the design space of AI agent systems.
+比较结果揭示了人工智能代理系统设计空间的三个方面。
+
+First, the recurring design questions identified in Section˜3.1 (where reasoning lives, what safety posture to adopt, how to manage context, how to structure extensibility) apply beyond coding agents. OpenClaw answers every one of these questions, but from the starting point of a multi-channel personal assistant rather than a repository-bound coding tool. The questions are stable; the answers vary with deployment context.
+首先， 第 3.1 节中提出的反复出现的设计问题（推理机制在哪里、采用何种安全策略、如何管理上下文、如何构建可扩展性）不仅适用于编码代理。OpenClaw 可以回答所有这些问题，但它的出发点是多渠道个人助理，而不是受限于代码库的编码工具。这些问题本身是稳定的；答案则随部署环境而变化。
+
+Second, the systems make opposite bets on several dimensions. Claude Code invests in graduated per-action safety evaluation; OpenClaw invests in perimeter-level identity and access control. Claude Code treats the agent loop as the architectural center; OpenClaw treats the gateway control plane as the center and embeds the agent loop as one component. Claude Code’s extensions modify a single context window; OpenClaw’s plugins extend a shared gateway surface. These inversions are not arbitrary: they follow from the different trust models and deployment topologies.
+其次，这两个系统在多个维度上采取了截然相反的策略。Claude Code 侧重于逐个操作的安全评估；OpenClaw 则侧重于边界级的身份和访问控制。Claude Code 将代理循环视为架构核心；OpenClaw 则将网关控制平面视为核心，并将代理循环嵌入其中。Claude Code 的扩展程序修改的是单个上下文窗口；OpenClaw 的插件则扩展了共享的网关界面。这些差异并非偶然：它们源于不同的信任模型和部署拓扑结构。
+
+Third, the compositional relationship between the two systems is architecturally significant. OpenClaw can host Claude Code as an external coding harness via ACP, meaning the two systems are composable rather than exclusive alternatives. This suggests that the design space of AI agents is not a flat taxonomy but a layered one, where gateway-level systems and task-level harnesses can compose.
+第三，这两个系统之间的组合关系在架构上意义重大。OpenClaw 可以通过 ACP 将 Claude Code 作为外部编码框架托管，这意味着这两个系统是可组合的，而非互斥的替代方案。这表明人工智能代理的设计空间并非扁平的分类体系，而是分层的，其中网关级系统和任务级框架可以相互组合。
+
+## 11 Discussion 11
+讨论
+
+The analysis in the preceding sections documented how Claude Code answers recurring design questions about loop architecture, safety posture, extensibility, context management, delegation, and persistence. Each answer reflects a position in a design space with real alternatives and measurable trade-offs. This section examines what those answers reveal when read together: the design philosophy they reflect (Section˜11.1), the value tensions they create (Section˜11.2), the architectural trade-offs they entail (Section˜11.3), the empirical predictions they generate (Section˜11.4), and the cross-cutting commitments that recur across subsystems (Section˜11.7). The five-value framework from Section˜2.1 serves as the organizing lens throughout.
+前几节的分析记录了克劳德·科德如何回答关于循环架构、安全态势、可扩展性、上下文管理、委托和持久性等反复出现的设计问题。每个答案都反映了设计空间中的一个立场，其中包含了实际的替代方案和可衡量的权衡取舍。本节将探讨这些答案结合起来所揭示的内容：它们所体现的设计理念（ 第 11.1 节 ）、它们所产生的价值冲突（ 第 11.2 节 ）、它们所蕴含的架构权衡取舍（ 第 11.3 节 ）、它们所产生的经验预测（ 第 11.4 节 ）以及在子系统中反复出现的跨领域承诺（ 第 11.7 节 ）。 第 2.1 节中的五价值框架贯穿始终，作为组织框架。
+
+### 11.1 Design Philosophy 11.1
+设计理念
+
+The values and design principles introduced in Section˜2 predict an architecture that invests in operational infrastructure rather than decision scaffolding. The implementation confirms this: the architecture documented in Sections˜3, 4, 5, 6, 7, 8 and 9 is overwhelmingly deterministic infrastructure (permission gates, tool routing, context management, recovery logic), with the LLM invoked as a stateless completion endpoint. An estimated 1.6% of the codebase constitutes decision logic, the remaining 98.4% is the operational harness. This ratio is not accidental.
+第 2 节介绍的价值观和设计原则预示着一种架构，该架构侧重于运维基础设施而非决策框架。实现过程证实了这一点：第 3、4、5、6、7、8 和 9 节中记录的架构主要由确定性基础设施（权限门、工具路由、上下文管理、恢复逻辑）构成，LLM 则作为无状态完成端点被调用。代码库中决策逻辑约占 1.6%，其余 98.4% 为运维框架。这一比例并非偶然。
+
+The design principles documented in Section˜2.2 underpin this approach: the harness creates conditions under which the model can decide well, rather than constraining its choices.
+第 2.2 节中记录的设计原则是这种方法的基础：该框架创造了模型能够做出良好决策的条件，而不是限制其选择。
+
+This design runs counter to the dominant pattern in agent engineering, where frameworks such as LangGraph route model outputs through explicit graph nodes with typed edges, and systems like Devin pair multi-step planners with heavy operational infrastructure. Claude Code instead gives the model maximum decision latitude within a rich operational harness. The engineering complexity exists not to constrain the model’s decisions but to enable them. This layered architecture, where the model reasons and the harness enforces, raises the question of whether agentic coding tools are converging toward operating-system-like abstractions in which the core loop serves as the kernel and everything else constitutes the OS.
+这种设计与代理工程领域的主流模式背道而驰。在主流模式中，诸如 LangGraph 之类的框架通过带有类型化边的显式图节点来路由模型输出，而像 Devin 这样的系统则将多步骤规划器与庞大的运维基础设施相结合。Claude Code 则赋予模型在丰富的运维框架内最大的决策自由度。工程复杂性并非为了限制模型的决策，而是为了赋能模型的决策。这种分层架构——模型负责推理，运维框架负责执行——引发了一个问题：代理编码工具是否正在趋向于类似操作系统的抽象，其中核心循环充当内核，而其他一切则构成操作系统？
+
+The design gains additional significance as frontier models converge in practical capability for coding tasks: the quality of the surrounding operational harness becomes the principal differentiator, validating an architecture that invests in infrastructure over decision scaffolding. For agent builders, the implication is that investing in deterministic infrastructure such as context management, safety layering, and recovery mechanisms may yield greater reliability gains than adding planning scaffolding around increasingly capable models.
+随着前沿模型在编码任务的实用能力上趋于一致，该设计的重要性也日益凸显：周边运行环境的质量成为主要的区分因素，验证了那种将资源投入基础设施而非决策框架的架构的有效性。对于智能体构建者而言，这意味着投资于确定性基础设施（例如上下文管理、安全分层和恢复机制）可能比围绕功能日益强大的模型添加规划框架带来更大的可靠性提升。
+
+Taken together, the preceding sections show that production coding agents face recurring design choices: where reasoning lives relative to the harness, how the iteration loop is structured, what safety posture to adopt by default, how the extension surface is partitioned, how context is assembled and compressed, how subagents are delegated and orchestrated, and how sessions persist across boundaries. Claude Code’s answers to these questions form a coherent design point that privileges model autonomy within a rich operational harness.
+综上所述，前几节表明，生产编码代理面临着反复出现的设计选择：推理相对于框架的位置、迭代循环的结构、默认采用的安全姿态、扩展界面的划分、上下文的组装和压缩、子代理的委派和协调，以及会话如何跨边界保持。Claude Code 对这些问题的解答构成了一个连贯的设计理念，即在功能丰富的操作框架内优先考虑模型自主性。
+
+This philosophy assumes that rich deterministic infrastructure can adequately support unconstrained model judgment. The following subsections examine where this assumption is tested.
+这种理念假设，完善的确定性基础设施能够充分支持不受约束的模型判断。以下各小节将探讨这一假设的检验之处。
+
+### 11.2 Value Tensions 11.2
+价值张力
+
+The five values identified in Section˜2.1 generate tensions where pursuing one value constrains another (Table˜4). These tensions are not design failures; they are structural consequences of pursuing multiple values simultaneously. We report the tensions with the strongest supporting evidence, not the full combinatorial set.
+第 2.1 节中确定的五个价值维度会产生矛盾，即追求其中一个价值维度会限制另一个价值维度（ 表 4 ）。这些矛盾并非设计缺陷，而是同时追求多个价值维度所导致的结构性后果。我们仅报告有最有力证据支持的矛盾，而非所有可能的组合。
+
+Table 4: Tensions between values, with supporting evidence. Each tension demonstrates that the two values capture genuinely distinct concerns.
+表 4： 价值观之间的冲突及其佐证。每一种冲突都表明这两种价值观确实反映了截然不同的关注点。
+
+| Value Pair 价值对 | Tension 紧张 | Evidence 证据 |
+| Authority $\times$ Safety   权威 $\times$ 安全 | Approval fatigue vs. protection   审批疲劳与保护 | 93% approval rate undermines human vigilance (anthropic2026automode); safety must compensate via classifier and sandboxing   93%的批准率削弱了人类的警惕性 （anthropic2026automode） ；安全必须通过分类器和沙盒机制来弥补。 |
+| Safety $\times$ Capability   安全 $\times$ 能力 | Performance vs. defense depth   表现与防守深度 | $>$ 50-subcommand fallback skips per-subcommand deny checks due to parsing overhead (adversa2026bypass); safety layers share performance constraints   $>$ 50 个子命令回退机制由于解析开销而跳过每个子命令的拒绝检查 adversa2026bypass ；安全层共享性能约束 |
+| Adaptability $\times$ Safety   适应性 $\times$ 安全性 | Extensibility vs. attack surface   可扩展性与攻击面 | Multiple CVEs exploit pre-trust initialization of hooks and MCP servers (checkpoint2026rce)   多个 CVE 利用钩子和 MCP 服务器的预信任初始化漏洞 checkpoint2026rce |
+| Capability $\times$ Adaptability   能力 $\times$ 适应性 | Proactivity vs. disruption   主动出击 vs. 被动应对 | 12 to 18% more tasks but preference drops at high frequencies (chi2025proactive)   任务量增加 12% 至 18%，但高频任务的偏好度下降 chi2025proactive |
+| Capability $\times$ Reliability   能力 $\times$ 可靠性 | Velocity vs. coherence 速度与相干性 | Bounded context prevents full codebase awareness (Section˜7); subagent isolation limits cross-agent consistency (Section˜8); complexity increases observed in adjacent tools (he2026cursor)   有限上下文阻碍了对代码库的完全感知（第 7 节）；子代理隔离限制了跨代理的一致性（第 8 节）；相邻工具 he2026cursor 中观察到的复杂性增加 |
+
+Two additional tensions surface through the evaluative lens of long-term capability preservation (Section˜2.4). A randomized controlled trial of 16 experienced developers across 246 tasks (becker2025measuring) found that AI tools made developers 19% slower, despite a perceived 20% improvement. A causal analysis of Cursor adoption across 807 repositories (he2026cursor) found that code complexity increased by 40.7%. An EEG study of 54 participants (kosmyna2025brain) found that LLM users showed weakened neural connectivity that persisted after AI was removed. Researchers have proposed protocols for measuring cognitive offloading in AI-assisted programming, motivated by concerns that students using AI produce applications without understanding the underlying logic (aiersilan2026vibecheck). These findings, combined with a 25% decline in entry-level tech hiring between 2023 and 2024 (rak2025aihiring), suggest that the tension between capability amplification and long-term sustainability extends beyond individual productivity to the broader developer pipeline. This evidence motivates the evaluative lens but does not target Claude Code’s architecture specifically; it applies to any agent system with bounded context and tool-use loops.
+从长期能力保持的评估视角来看，还存在另外两个矛盾（ 第 2.4 节 ）。一项针对 16 位经验丰富的开发人员，在 246 项任务中开展的随机对照试验 （ becker2025measuring ） 发现，尽管人们认为 AI 工具能带来 20% 的改进，但实际上开发人员的效率却降低了 19%。一项针对 807 个代码库中 Cursor 采用情况的因果分析 （ he2026cursor ） 发现，代码复杂度增加了 40.7%。一项针对 54 名参与者的脑电图研究 （ kosmyna2025brain ） 发现，LLM 用户的神经连接性减弱，即使在移除 AI 后这种减弱仍然存在。研究人员提出了用于测量 AI 辅助编程中认知卸载的方案，其动机是担心学生在使用 AI 时，会在不理解底层逻辑的情况下编写应用程序 （ aiersilan2026vibecheck ） 。这些发现，结合 2023 年至 2024 年间入门级技术招聘下降 25%的数据 （ rak2025aihiring ） ，表明能力提升与长期可持续性之间的矛盾不仅体现在个人生产力上，还延伸至更广泛的开发者人才储备。这些证据促使我们进行评估，但并非专门针对 Claude Code 的架构；它适用于任何具有有限上下文和工具使用循环的智能体系统。
+
+### 11.3 Architectural Trade-offs 11.3
+建筑设计中的权衡取舍
+
+The tensions in Table˜4 manifest as concrete architectural trade-offs in four areas. The long-term sustainability concerns documented in the evaluative lens paragraph above surface in the empirical predictions of Section˜11.4.
+表 ˜ 4 中的矛盾体现为四个领域的具体建筑权衡。上文评估视角段落中记录的长期可持续性问题在第 ˜ 11.4 节的经验预测中有所体现。
+
+#### Safety vs. autonomy.
+安全与自主。
+
+The permission modes (five always present, plus auto when the classifier feature flag is active, and the internal bubble mode) create a gradient from plan (user approves all plans) through default, acceptEdits, auto (ML classifier), dontAsk, to bypassPermissions (skips most prompts but safety-critical checks remain). The progression represents a monotonically decreasing safety gradient with increasing autonomy. Not restoring permissions on resume reflects a deliberate choice to err toward safety: security state does not persist implicitly across session boundaries.
+权限模式（五种始终存在，加上分类器功能标志激活时的自动模式和内部气泡模式）构成了一个渐变，从 “计划” （用户批准所有计划）经 “默认” 、 “接受编辑 ”、 “自动” （机器学习分类器）、 “不询问” 到 “绕过权限” （跳过大多数提示，但仍保留安全关键检查）。该渐变体现了随着自主性增强，安全性单调递减的趋势。恢复时不恢复权限反映了一种有意为之的安全性选择：安全状态不会在会话边界之间隐式地保持。
+
+The safety-autonomy gradient is shaped not only by architectural design but by user behavior. Anthropic’s auto-mode analysis (anthropic2026automode) found that users approve approximately 93% of permission prompts, indicating that approval fatigue renders interactive confirmation behaviorally unreliable. Longitudinal usage data (anthropic2026autonomy) shows that auto-approve rates increase from approximately 20% at fewer than 50 sessions to over 40% by 750 sessions, with substantial increases in session duration. These patterns suggest that the gradient is navigated not by deliberate mode selection but by gradual habituation. Sandboxing reduced the frequency of permission prompts by an estimated 84% (anthropic2025sandboxing), reframing the problem as a human-factors concern: the architectural response to unreliable human approval is to reduce the number of decisions humans must make.
+安全自主度梯度不仅受架构设计的影响，也受用户行为的影响。Anthropic 的自动模式分析 （ anthropic2026automode ） 发现，用户批准了约 93% 的权限提示，这表明审批疲劳导致交互式确认在行为上不可靠。纵向使用数据 （ anthropic2026autonomy ） 显示，自动批准率从不到 50 次会话时的约 20% 增加到 750 次会话时的 40% 以上，会话时长也显著增加。这些模式表明，用户并非通过刻意选择模式来适应这一梯度，而是通过逐渐养成习惯来实现的。沙盒机制将权限提示的频率降低了约 84% （ anthropic2025sandboxing ） ，并将问题重新定义为人为因素问题：架构应对不可靠的人为审批的方式是减少用户必须做出的决策数量。
+
+More fundamentally, the defense-in-depth architecture described in Section˜5 rests on an independence assumption: if one safety layer fails, others catch the violation. But Claude Code’s safety layers share common performance and economic constraints. The auto-mode classifier is a separate LLM call with direct token cost. The bashSecurity.ts module performs sequential AST-based checks with parsing latency. The deny-first rule evaluation operates on command structure. When performance pressure pushes toward reducing these costs, layers can degrade simultaneously. Security researchers (adversa2026bypass) have documented that commands with more than 50 subcommands fall back to a single generic approval prompt instead of running per-subcommand deny-rule checks, because per-subcommand parsing caused UI freezes, demonstrating that defense-in-depth fails when the independence assumption is violated.
+更根本的是， 第 5 节所述的纵深防御架构基于一个独立性假设：如果一个安全层失效，其他安全层会捕获到违规行为。但 Claude Code 的安全层存在共同的性能和经济限制。自动模式分类器是一个独立的 LLM 调用，会产生直接的令牌成本。bashSecurity.ts 模块执行基于 AST 的顺序检查 ， 存在解析延迟。拒绝优先规则的评估基于命令结构。当性能压力迫使降低这些成本时，各层性能可能会同时下降。安全研究人员 （ adversa2026bypass ） 记录到，包含超过 50 个子命令的命令会回退到单个通用批准提示，而不是运行每个子命令的拒绝规则检查，因为逐个子命令的解析会导致 UI 冻结，这表明当独立性假设被违反时，纵深防御会失效。
+
+This tension is structural. Any LLM-based agent system that uses the model itself for safety evaluation faces it. The relevant evaluation criterion is not whether any individual layer can be bypassed, but how many independent layers must fail simultaneously and whether they share failure modes.
+这种矛盾是结构性的。任何基于 LLM 的代理系统，如果使用模型本身进行安全评估，都会面临这种矛盾。相关的评估标准并非某个单独的层是否可以被绕过，而是需要多少个独立的层同时失效，以及它们是否具有共同的失效模式。
+
+#### Permission model under adversarial conditions.
+对抗条件下的许可模型。
+
+Independent security research provides empirical validation of the permission architecture, specifically by revealing a temporal ordering property not captured in Figure˜4. Two independently verified vulnerabilities share a root cause in pre-trust initialization ordering: code executing during project initialization (hooks, MCP server connections, and settings file resolution) runs before the interactive trust dialog is presented to the user 
+.此预信任执行窗口不在先拒绝评估管道（ permissions.ts ）中，从而创建了一个结构特权阶段，其中第 5 节中记录的安全保证尚未适用。
+独立安全研究对权限架构进行了实证验证，特别是揭示了图 4 中未体现的时间顺序属性。两个经独立验证的漏洞的共同根源在于信任初始化前的顺序：在项目初始化期间执行的代码（钩子、MCP 服务器连接和设置文件解析）在向用户显示交互式信任对话框之前运行 . This pre-trust execution window falls outside the deny-first evaluation pipeline (permissions.ts), creating a structurally privileged phase where the safety guarantees documented in Section˜5 do not yet apply.
+
+This pattern reveals that the permission pipeline depicts a spatial ordering of safety checks but does not capture the temporal dimension: specifically, when during session initialization each mechanism becomes active. The initialization sequence (extension loading, then trust dialog, then permission enforcement) creates a window where the extensibility architecture (Section˜6) operates before the safety architecture (Section˜5) is fully engaged. This finding refines the extensibility-versus-simplicity tension by adding a security dimension: extensibility creates attack surface not only through combinatorial complexity but through initialization ordering.
+这种模式揭示了权限管道描绘了安全检查的空间顺序，但并未捕捉到时间维度：具体而言，即会话初始化期间每个机制何时激活。初始化顺序（先加载扩展，然后是信任对话，最后是权限强制执行）创建了一个窗口期，在这个窗口期内，可扩展性架构（ 第 6 节 ）在安全架构（ 第 5 节 ）完全启用之前运行。这一发现通过引入安全维度，深化了可扩展性与简洁性之间的矛盾：可扩展性不仅通过组合复杂性，而且还通过初始化顺序来创建攻击面。
+
+#### Context efficiency vs. transparency.
+上下文效率与透明度。
+
+The five-layer compaction pipeline achieves effective context management, but compression is largely invisible to the user. When budget reduction replaces a long tool output with a reference, when context collapse substitutes messages with a summary (described in the source as “a read-time projection over the REPL’s full history”), or when snip trims older history, the user has no easy way to inspect what was lost. The cache-aware behavior of microcompact adds further opacity, as compression decisions are influenced by prompt caching in ways not visible to the user.
+五层压缩流水线实现了有效的上下文管理，但压缩过程对用户而言几乎不可见。当预算缩减将冗长的工具输出替换为引用时，当上下文折叠将消息替换为摘要（源代码中描述为“对 REPL 完整历史记录的读取时投影”）时，或者当 snip 修剪较旧的历史记录时，用户无法轻易查看丢失了哪些内容。microcompact 的缓存感知行为进一步增加了不透明性，因为压缩决策会受到提示符缓存的影响，而这些影响对用户来说是不可见的。
+
+#### Simplicity vs. extensibility.
+简洁性与可扩展性。
+
+The four extension mechanisms enable rich customization but create combinatorial interactions. A plugin contributes a PreToolUse hook that modifies tool inputs. The auto-mode classifier reads cached CLAUDE.md content. Path-scoped rules load lazily when new directories are read, potentially changing classifier behavior mid-conversation. The permission handler’s four branches interact with the hook pipeline at multiple points. These cross-cutting concerns create emergent behaviors difficult to predict from any single configuration file.
+这四种扩展机制实现了丰富的自定义功能，但也带来了组合式交互。一个插件提供了一个 PreToolUse 钩子，用于修改工具的输入。自动模式分类器读取缓存的 CLAUDE.md 内容。路径作用域规则在读取新目录时延迟加载，这可能会在交互过程中改变分类器的行为。权限处理程序的四个分支在多个点与钩子管道交互。这些横切关注点导致了难以从任何单个配置文件预测的涌现行为。
+
+### 11.4 Empirical Predictions and Early Signals 11.4
+经验预测和早期信号
+
+The architectural properties documented in this paper generate testable predictions about code quality outcomes not derivable from the source code alone. The bounded context window (Section˜7) prevents the agent from maintaining simultaneous awareness of the full codebase: the five-layer compaction pipeline preserves useful information but introduces lossy compression at each stage. This makes it architecturally predicted that agent-generated code will exhibit higher rates of pattern duplication and convention violation than code produced with full codebase visibility. Subagent isolation (Section˜8), where each subagent operates in its own context window with an independently assembled tool pool, compounds the effect: parallel agents can independently re-implement solutions that already exist elsewhere. The design philosophy of Section˜11.1 trusts the model to make good local decisions, but good local decisions can produce poor global outcomes when the model lacks global context.
+本文记录的架构特性能够对代码质量结果做出可测试的预测，而这些预测仅凭源代码是无法得出的。有界上下文窗口（ 第 7 节 ）限制了智能体同时感知整个代码库的能力：五层压缩流水线虽然保留了有用信息，但在每个阶段都会引入有损压缩。因此，从架构角度来看，智能体生成的代码比在完全可见代码库的情况下生成的代码更容易出现模式重复和违反约定的情况。子智能体隔离（ 第 8 节 ）进一步加剧了这种影响，每个子智能体都在其自身的上下文窗口中运行，并拥有独立组装的工具池：并行智能体可以独立地重新实现其他地方已经存在的解决方案。 第 11.1 节的设计理念是信任模型能够做出良好的局部决策，但当模型缺乏全局上下文时，良好的局部决策可能会导致糟糕的全局结果。
+
+Published empirical work on architecturally similar tools provides data consistent with these predictions. A causal analysis of Cursor adoption across 807 repositories (he2026cursor) found a statistically significant increase in code complexity, with an initial velocity spike that dissipated to baseline by month three; rising complexity was associated with a proportional decrease in future development velocity, suggesting that the gains are self-cancelling 
+一项针对 6275 个代码库中 30.4 万条 AI 提交的大规模审计 （ liu2026techdebt ） 发现存在可衡量的技术债务，其中约四分之一的 AI 引入的问题持续到最新版本，而安全相关问题的持续率则更高。虽然这些研究针对的是相邻系统，但其架构上的相似之处（限界上下文、工具使用循环、单次生成）表明，这些发现与本文分析的设计相关。
+已发表的关于架构相似工具的实证研究提供了与这些预测一致的数据。对 807 个代码库中 Cursor 的使用情况进行因果分析 ( he2026cursor ) 发现，代码复杂度出现了统计学意义上的显著增加，初始速度峰值在第三个月回落至基线水平；复杂度的增加与未来开发速度的相应下降相关，表明收益是相互抵消的 
+
+Claude Code’s context management pipeline is specifically designed to mitigate these effects: graduated compression preserves the most recent and most relevant context, cache-aware compaction avoids invalidating prompt caches during compression, read-time projection maintains full history for reconstruction while presenting a compressed view to the model, and subagent summary isolation prevents exploratory noise from accumulating in the parent context. Whether these mechanisms are sufficient to overcome the structural limitations of bounded context is a directly measurable empirical question that the source-level analysis in this paper cannot resolve.
+Claude Code 的上下文管理流程旨在缓解这些影响：渐进式压缩保留了最新且最相关的上下文；缓存感知压缩避免在压缩过程中使提示缓存失效；读取时投影在向模型呈现压缩视图的同时，保留了完整的历史记录以供重建；子代理摘要隔离则防止探索性噪声在父上下文中累积。这些机制是否足以克服有界上下文的结构性限制，是一个可以直接通过实证检验的问题，本文的源代码级分析无法解答。
+
+### 11.5 Limitations 11.5
+局限性
+
+Beyond the methodological limitations in Section˜16.3, several analytical constraints apply. The memoized context assembly functions (getSystemContext() and getUserContext() both use lodash memoize at context.ts) mean that git status and CLAUDE.md content are cached rather than recomputed on every turn. Dynamic changes during a conversation may not be reflected immediately, though compaction can clear caches and lazy-loaded path-scoped rules provide a partial counter-mechanism.
+除了第 16.3 节中提到的方法论局限性之外，还存在一些分析上的限制。记忆化的上下文组装函数（ getSystemContext() 和 getUserContext() 都使用了 context.ts 中的 lodash memoize ）意味着 git 状态和 CLAUDE.md 的内容会被缓存，而不是每次都重新计算。会话期间的动态更改可能不会立即反映出来，尽管压缩可以清除缓存，而延迟加载的路径作用域规则提供了一种部分补偿机制。
+
+Feature flags create build-time variability. In a build where TRANSCRIPT\_CLASSIFIER is false, the entire auto-mode classifier is eliminated. Feature-gated modules use dynamic require() rather than static import (e.g., query.ts for context collapse), because feature() only works in if/ternary conditions due to a bun:bundle tree-shaking constraint. Different build targets may produce functionally different applications.
+特性标志会造成构建时差异。在 TRANSCRIPT\_CLASSIFIER 为 false 的构建中，整个自动模式分类器将被移除。特性门控模块使用动态 require() 而不是静态导入 （例如，使用 query.ts 进行上下文折叠），因为由于 bun:bundle tree-shaking 的限制， feature() 只能在 if/三元条件语句中生效。不同的构建目标可能会生成功能不同的应用程序。
+
+### 11.6 Emerging Directions 11.6
+新兴方向
+
+Several aspects of the implementation relate to broader design questions. Longer context windows would reduce compaction pressure, potentially simplifying the graduated pipeline. Multi-modal tools (screenshots, diagrams, UI previews) would expand the tool surface and create new context challenges. Formal verification of permission properties (for example, proving that deny rules always take precedence, that sandboxed commands cannot escape isolation, or that resumed sessions cannot inherit stale permissions) would provide stronger safety guarantees.
+该实现的几个方面都与更广泛的设计问题相关。更长的上下文窗口可以减轻压缩压力，从而可能简化分级流程。多模态工具（屏幕截图、图表、UI 预览）将扩展工具的使用范围，并带来新的上下文挑战。对权限属性进行形式化验证（例如，证明拒绝规则始终优先、沙盒命令无法逃逸隔离、恢复的会话无法继承过期的权限）将提供更强大的安全保障。
+
+#### Architectural decoupling.
+架构解耦。
+
+The tightly coupled local architecture analyzed here is one point on a spectrum that is already evolving. Anthropic’s own Managed Agents work (anthropic2026managed) describes virtualizing the components of an agent (session, harness, sandbox) so that “each became an interface that made few assumptions about the others, and each could fail or be replaced independently”, drawing an explicit analogy to how operating systems virtualized hardware into processes and files. The Harness Design essay (anthropic2026harness) makes a similar point from a different angle, observing that “the space of interesting harness combinations doesn’t shrink as models improve”; instead, “it moves”. The architecture documented in this paper should therefore be read as a snapshot of a co-evolving system rather than a fixed optimum.
+本文分析的紧密耦合的本地架构只是正在演进的架构谱系中的一个点。Anthropic 的 Managed Agents 项目 （ anthropic2026managed ） 描述了如何虚拟化代理的各个组件（会话、工具、沙箱），使得“每个组件都成为一个接口，对其他组件的依赖性很低，并且每个组件都可以独立发生故障或被替换”，这与操作系统如何将硬件虚拟化为进程和文件有着明显的类比。Harness Design 的文章 （ anthropic2026harness ） 从另一个角度提出了类似的观点，指出“随着模型的改进，有趣的工具组合空间并不会缩小”；相反，“它会不断扩展”。因此，本文中记录的架构应该被视为一个共同演进系统的快照，而不是一个固定的最优解。
+
+#### Memory as a first-class subsystem.
+内存作为一级子系统。
+
+The memory survey of hu2025memory argues that agent memory is becoming a distinct cognitive substrate rather than a side effect of context window management, and identifies automated memory management, RL-driven memory, and trustworthy memory (privacy, explainability, and hallucination robustness) as open frontiers. Claude Code today exposes the factual tier (CLAUDE.md, auto memory) and the working tier (the conversation window); the experiential tier (accumulated, automatically curated playbooks of strategies learned from past sessions) is the natural next step, and the context-engineering literature (zhang2026ace) has started to provide mechanisms for that accumulation.
+hu2025memory 的记忆调查指出，智能体记忆正逐渐成为一种独立的认知基质，而非上下文窗口管理的副产品。该调查还指出，自动化记忆管理、强化学习驱动的记忆以及可信记忆（隐私性、可解释性和抗幻觉性）是尚未开发的领域。如今，Claude Code 揭示了事实层（CLAUDE.md，自动记忆）和工作层（对话窗口）；经验层（从过往会话中学习到的、自动整理的策略手册）是自然而然的下一步，而上下文工程文献 （ zhang2026ace ） 已经开始提供实现这种积累的机制。
+
+#### Observability and silent failure.
+可观测性和静默故障。
+
+Industry surveys suggest that the dominant failure mode of deployed agents is not crashes but silent mistakes. Bessemer’s 2026 infrastructure report (bessemer2026infra) estimates that “78% of AI failures are invisible”, while LangChain’s 1,340-respondent state-of-agent-engineering survey (langchain2026state) identifies quality, not cost, as the top barrier to production use and finds a wide gap between observability (nearly 89% adoption) and offline evaluation (52.4%). The architecture analyzed here gives operators visibility into tool calls, hooks, and session transcripts; closing the evaluation gap likely requires additional scaffolding (generator-evaluator separation, sprint contracts, and post-hoc checks of the kind discussed in anthropic2026harness) rather than model improvements alone.
+
+#### Governance.
+
+Broader governance trends will constrain the design space as agents become more autonomous. The International AI Safety Report (bengio2026safety) warns that “AI agents pose heightened risks because they act autonomously, making it harder for humans to intervene before failures cause harm,” and the MIT AI Agent Index (staufer2026agentindex) finds that only 13.3% of indexed agentic systems publish agent-specific safety cards. Emerging regulatory frameworks, notably the EU AI Act (fully applicable August 2026) and evolving copyright jurisprudence around AI-generated code, may impose external constraints on logging, transparency, and human oversight that shape how coding agent architectures evolve.
+随着智能体自主性增强，更广泛的治理趋势将限制设计空间。《国际人工智能安全报告》 （ bengio2026safety ） 警告称，“人工智能智能体由于其自主行动，使得人类更难在故障造成损害之前进行干预，从而带来更高的风险”。麻省理工学院人工智能智能体指数 （ staufer2026agentindex ） 发现，仅有 13.3%的已收录智能体系统发布了针对特定智能体的安全卡。新兴的监管框架，特别是欧盟人工智能法案（将于 2026 年 8 月全面生效）以及围绕人工智能生成代码不断发展的版权法理，可能会对日志记录、透明度和人工监督施加外部限制，从而影响编码智能体架构的演进方向。
+
+#### Proactive architectures.
+主动式架构。
+
+The feature-gated KAIROS system illustrates how this architecture may evolve beyond reactive tool use. KAIROS implements a persistent background agent with tick-based heartbeats: when no user messages are pending, the system injects periodic <tick> prompts, and the model decides whether to act or sleep. The design directly addresses a documented tension: proactive AI assistants increase task completion by 12 to 18% but reduce user preference at high frequencies (chi2025proactive). KAIROS resolves this through terminal focus awareness (maximizing autonomous action when the user is away, increasing collaboration when present) and economic throttling via SleepTool (each wake-up costs an API call; the prompt cache expires after five minutes of inactivity, making sleep/wake an explicit cost optimization). This binding of proactivity to both user presence and token economics is uncommon among production agent systems, though KAIROS cannot be confirmed as active in production builds.
+功能门控的 KAIROS 系统展示了这种架构如何超越被动式工具的使用。KAIROS 实现了一个基于 tick 的心跳机制的持久后台代理：当没有待处理的用户消息时，系统会周期性地注入 <tick> 提示，模型会决定是执行操作还是进入睡眠状态。该设计直接解决了一个已知的矛盾：主动式 AI 助手可以将任务完成率提高 12% 到 18%，但在高频使用时会降低用户偏好 （ chi2025proactive ） 。KAIROS 通过终端焦点感知（在用户不在时最大化自主操作，在用户在时增强协作）和 SleepTool 的经济节流机制解决了这个问题（每次唤醒都需要一次 API 调用；提示缓存会在五分钟不活动后过期，使睡眠/唤醒成为一种显式的成本优化）。这种将主动性与用户在场状态和令牌经济机制相结合的做法在生产代理系统中并不常见，尽管目前尚无法确认 KAIROS 在生产版本中是否处于活动状态。
+
+### 11.7 Recurring Design Choices 11.7
+反复出现的设计选择
+
+Reading the six subsystem analyses together reveals three cross-cutting design commitments that recur across otherwise independent components.
+将六个子系统分析放在一起阅读，可以发现三个贯穿各个独立组件的设计承诺。
+
+#### Graduated layering over monolithic mechanisms.
+在整体式机构上进行渐进式分层。
+
+Safety, context management, and extensibility all use graduated stacks of independent mechanisms rather than single integrated solutions. The permission architecture layers seven stages from tool pre-filtering through deny-first rules, permission modes, the auto-mode classifier, shell sandboxing, non-restoration on resume, and hook interception. Context management layers five compaction stages, lazy-loaded CLAUDE.md files, deferred tool schemas, and summary-only subagent returns. Extensibility layers four mechanisms (MCP servers, plugins, skills, and hooks) at different context costs (Section˜6). In each case, the design trades simplicity and debuggability for defense in depth, accepting that the interaction between layers can produce emergent behaviors difficult to predict from any single configuration.
+安全性、上下文管理和可扩展性均采用分级的独立机制堆栈，而非单一的集成解决方案。权限架构包含七个阶段，从工具预过滤到优先拒绝规则、权限模式、自动模式分类器、shell 沙箱、恢复时不恢复以及钩子拦截。上下文管理包含五个压缩阶段、延迟加载的 CLAUDE.md 文件、延迟工具模式以及仅返回摘要的子代理。可扩展性包含四种机制（MCP 服务器、插件、技能和钩子），每种机制的上下文成本各不相同（ 参见第 6 节 ）。在每种情况下，设计都以牺牲简洁性和可调试性为代价，换取纵深防御，并承认层间交互可能会产生难以从任何单一配置预测的涌现行为。
+
+#### Append-only designs that favor auditability over query power.
+仅追加式设计，优先考虑可审计性而非查询能力。
+
+Session transcripts are append-only JSONL files with read-time chain patching; permissions are not restored across session boundaries; context compaction applies read-time projections over a full history rather than destructive edits. This commitment recurs because it preserves the ability to resume, fork, and audit sessions without modifying previously written state. The cost is that richer structured queries (“show me all tool calls that modified file X across sessions”) require post-hoc reconstruction rather than direct lookup.
+会话记录是只读的 JSONL 文件，支持读取时链式修补；权限不会在会话边界之间恢复；上下文压缩采用读取时投影的方式处理完整的历史记录，而不是进行破坏性编辑。这种特性需要重复使用，因为它保留了在不修改先前写入状态的情况下恢复、创建和审计会话的能力。代价是，更丰富的结构化查询（例如“显示所有跨会话修改文件 X 的工具调用”）需要事后重建，而不是直接查找。
+
+#### Model judgment within a deterministic harness.
+在确定性框架内进行模型判断。
+
+Across all subsystems, the architecture trusts the model’s judgment within a rich deterministic harness rather than constraining its choices. The estimated 1.6% decision-logic ratio captures this quantitatively: the harness creates conditions (tool routing, permission enforcement, context assembly, recovery logic) under which the model can decide well. Hierarchical permissions preserve safety invariants across agent boundaries, and assembleToolPool() merges built-in and MCP tools into a single unified interface, but the model retains full latitude over which tools to invoke and in what order. The trade-off is that good local decisions can produce poor global outcomes when bounded context prevents global awareness, as the empirical predictions of Section˜11.4 document.
+在所有子系统中，该架构信任模型在丰富的确定性框架内的判断，而不是限制其选择。估计的 1.6% 决策逻辑比率量化地体现了这一点：该框架创建了模型能够做出良好决策的条件（工具路由、权限强制执行、上下文组装、恢复逻辑）。分层权限在代理边界之间保持了安全不变性，而 assembleToolPool() 将内置工具和 MCP 工具合并到一个统一的接口中，但模型仍然完全可以自主决定调用哪些工具以及调用顺序。权衡之处在于，当受限的上下文阻碍了全局感知时，良好的局部决策可能会导致较差的全局结果，正如第 11.4 节的经验预测所述。
+
+## 12 Future Directions 12
+未来方向
+
+Section˜11 read the architecture documented in Sections˜3, 4, 5, 6, 7, 8 and 9 as a coherent design point and surfaced the tensions, trade-offs, and near-horizon directions that design point implies. This section steps beyond the architecture itself to record six open questions that Section˜11.6 partially names and that a growing external literature has sharpened enough to state concretely. The six span the paper’s five-value framework (Section˜2.1) and its evaluative lens (Section˜2.4): external governance constraints on the Authority hierarchy (Section˜12.5); the observability–evaluation gap on the Safety side (Section˜12.1); cross-session persistence of state and relationship on the Reliability side (Section˜12.2); four extensions of the Capability frontier (Section˜12.3); horizon scaling as a distinct axis of Reliable Execution beyond cross-session continuity (Section˜12.4); and the evaluative lens of Section˜2.4 reframed as a design question rather than a diagnostic one (Section˜12.6). Consistent with Section˜11.6’s framing, each question is posed in the form *whether* / *how* / *which*; specific mechanism choices are named when the cited sources name them and left open otherwise.
+第 11 节将第 3、4、5、6、7、8 和 9 节中记录的架构解读为一个连贯的设计点 ， 并揭示了该设计点所蕴含的张力 、 权衡取舍以及近期发展方向。本节超越了架构本身 ， 记录了第 11.6 节部分提及的六个开放性问题，这些问题已在不断涌现的外部文献中得到进一步的完善，并被具体化。这六个问题涵盖了本文的五价值框架（ 第 2.1 节 ）及其评估视角（ 第 2.4 节 ）：外部治理对权限层级的约束（ 第 12.5 节 ）；安全方面的可观测性与评估之间的差距（ 第 12.1 节 ）；可靠性方面的跨会话状态和关系持久性（ 第 12.2 节 ）；能力边界的四个扩展（ 第 12.3 节 ）；将视野扩展作为可靠执行的一个独特维度，超越跨会话连续性（ 第 12.4 节 ）；并将第 2.4 节的评估视角重新定义为一个设计问题，而不是一个诊断问题（ 第 12 节 ）。6）。与第 11.6 节的框架一致，每个问题都以 *“是否* / *如何* / *哪个”* 的形式提出；当引用的来源提及具体机制时，会提及这些机制，否则则保持开放。
+
+### 12.1 Silent Failure and the Observability–Evaluation Gap 12.1
+隐性故障与可观测性-评估差距
+
+Whether the observability–evaluation adoption gap reported in Section˜11.6 reflects a missing tooling layer, a missing evaluation interface inside the harness, or a model-capability ceiling is not resolved by the sources cited there. How the silent-mistake failure mode noted in that paragraph should be surfaced is therefore an architectural question for the harness rather than a capability question for the model. Recent empirical work characterises the gap at several resolutions. cemri2025massfail catalogue fourteen failure modes spanning system-design issues, inter-agent misalignment, and task verification; pathak2025silentmultiagent build a benchmark of agent trajectories specifically for anomaly detection in traces; yao2024taubench expose consistency gaps via the $\text{pass}^{k}$ metric (the probability that all $k$ independent trials succeed); and kapoor2024agentsthatmatter argue that current agent benchmarks lack holdouts and cost controls, limiting what observability can actually diagnose.
+第 11.6 节中报告的可观测性与评估采用之间的差距，究竟是工具层缺失、框架内部评估接口缺失，还是模型能力上限所致，该节引用的文献并未给出明确答案。因此，该段落中提到的“静默错误”故障模式应如何显现，是框架的架构问题，而非模型的能力问题。近期的一些实证研究从多个角度描述了这一差距。cemri2025massfail 列举了十四种故障模式，涵盖系统设计问题、智能体间不匹配和任务验证； pathak2025silentmultiagent 构建了一个专门用于轨迹异常检测的智能体轨迹基准； yao2024taubench 通过 $\text{pass}^{k}$ 指标（所有 $k$ 次独立试验均成功的概率）揭示了一致性差距； kapoor2024agentsthatmatter 则 指出，当前的智能体基准缺乏保留样本和成本控制，限制了可观测性实际能够诊断的问题。
+
+Against the permission pipeline and tool-orchestration layers analysed in Sections˜5 and 4, two architectural questions remain open. First, whether the scaffolding the paper cites from anthropic2026harness (generator–evaluator separation, sprint contracts, post-hoc checks, building on madaan2023selfrefine ’s self-refine pattern) belongs inside the harness (e.g., as additional hook events alongside the 27 documented in Section˜6) or outside it as a separate evaluation layer is not settled by the cited sources. Second, whether the existing hook pipeline of Section˜6 can host such scaffolding within its current context-cost envelope is a further open question. The observation that closing this gap “likely requires additional scaffolding …rather than model improvements alone” (Section˜11.6) locates the open work at the harness layer.
+针对第 5 节和第 4 节分析的权限管道和工具编排层，仍有两个架构问题悬而未决。首先，本文引用的来自 anthropic2026harness 的脚手架（生成器-评估器分离、迭代契约、事后检查、基于 madaan2023selfrefine 的自优化模式）究竟应该放在 Harness 内部（例如，作为第 6 节中记录的 27 个钩子事件之外的额外钩子事件），还是应该作为单独的评估层放在 Harness 外部，这一点尚未得到引用文献的明确解答。其次， 第 6 节中现有的钩子管道能否在其当前的上下文成本范围内容纳此类脚手架，也是一个悬而未决的问题。 第 11.6 节指出，弥合这一差距“可能需要额外的脚手架……而不仅仅是模型改进”，这表明未解决的问题在于 Harness 层。
+
+### 12.2 Persistence: Memory and Longitudinal Colleague Relationships 12.2
+持久性：记忆与长期同事关系
+
+Whether agent state and the human–agent working relationship should persist across sessions, and in what form, is treated by the paper at two distinct layers today. Section˜7 documents the four-level CLAUDE.md hierarchy and auto memory; Section˜9 documents mostly-append-only JSONL transcripts (with explicit cleanup rewrites as an exception) whose session-scoped permissions resume does not restore. What belongs between these two layers (durable state that is neither a static instruction nor a single session’s transcript) is an open design question. hu2025memory and zhang2026ace, already cited in Section˜11.6, motivate an accumulating layer. packer2024memgpt reframes the LLM as an operating system with paged memory; chhikara2025mem0 builds a production-oriented memory store that survives restarts, while xu2025amem proposes a research agentic-memory design; wang2024agentworkflowmemory captures reusable procedural traces; shinn2023reflexion accumulates self-reflection traces via verbal reinforcement across attempts; and surveys by zhang2024memorysurvey and huang2026rethinkingmemory map candidate mechanisms.
+本文目前从两个不同的层面探讨了代理状态和人机工作关系是否应该跨会话保持，以及以何种形式保持。 第 7 节记录了四级 CLAUDE.md 层级结构和自动内存； 第 9 节记录了主要用于追加的 JSONL 转录本（显式清理重写除外），这些转录本的会话级权限恢复功能无法恢复。介于这两层之间的内容（既非静态指令也非单次会话转录本的持久状态）是一个开放的设计问题。 第 11.6 节中已引用的 hu2025memory 和 zhang2026ace 提出了累积层的概念。packer2024memgpt 将 LLM 重构为一个具有分页内存的操作系统； chhikara2025mem0 构建了一个面向生产的 、 可在重启后继续运行的内存存储；而 xu2025amem 则提出了一种研究型代理内存设计
+Wang2024agentworkflowmemory 捕获可重用的过程痕迹； Shinn2023reflexion 通过多次尝试中的言语强化积累自我反思痕迹； Zhang2024memorysurvey 和 Huang2026rethinkingmemory 的调查绘制候选机制图。
+
+The same persistence question recurs on the human side. Section˜11.6 already cites longitudinal autonomy evidence (anthropic2025internal, anthropic2026autonomy); dellacqua2025cybernetic ’s field experiment with 776 Procter & Gamble professionals, together with longitudinal and organisational studies of Copilot rollouts (stray2025copiloteval) and AI-teamwork trajectories (xiao2025aiteamwork), report shifts in human–AI work dynamics as collaboration accumulates. wang2023voyager illustrates an embodied agent that accumulates a skill library across tasks; mollick2024cointelligence frames the human–AI working relationship as co-intelligence.
+同样的持久性问题在人类方面也反复出现。 第 11.6 节已经引用了纵向自主性证据（ anthropic2025internal ， anthropic2026autonomy ）； Dellacqua2025cybernetic 对 776 位宝洁公司专业人士进行的实地实验，以及对 Copilot 系统推广 （ stray2025copiloteval ） 和人工智能团队协作轨迹 （ xiao2025aiteamwork ） 的 纵向和组织研究，都表明随着协作的积累，人机工作动态发生了变化。Wang2023voyager 展示了一个具身智能体，它可以在各项任务中积累技能库； Mollick2024cointelligence 将人机工作关系定义为协同智能。
+
+Whether a single substrate can carry both a user’s personal instruction hierarchy and a shared organisational context while preserving the file-based transparency of CLAUDE.md that Section˜7 documents is an open architectural question. How session-scoped permissions interact with such a substrate, without reintroducing the resume-restoration concern that Section˜9 closes as a deliberate safety choice, is a further open question.
+
+### 12.3 Harness Boundary Evolution: Where, When, What, and with Whom the Agent Acts
+
+Section˜11.6 cites anthropic2026harness ’s observation that “the space of interesting harness combinations doesn’t shrink as models improve; it moves.” Whether that movement will be most pronounced in *where* the harness runs, *when* it acts, *what* it acts on, or *with whom* it coordinates is not resolved by the source-level analysis in Sections˜3, 4, 5, 6, 7, 8 and 9. Each of the four has an active research literature that the paper touches only in passing.
+
+#### Where.
+
+anthropic2026managed ’s Managed Agents design virtualizes session, harness, and sandbox into independently replaceable interfaces, extending the virtual-memory analogy that packer2024memgpt applies to context-window management and that karpathy2023llmos popularizes more broadly; khattab2024dspy treats the harness itself as a compile target.
+
+#### When.
+
+Section˜11.6 already introduces KAIROS as a feature-gated illustration, motivated by the $+12\%$ – $18\%$ task-pass gain that chi2025proactive report and the sharp preference penalty (47% vs. 80–90%) restricted to the high-frequency *Persistent Suggest* variant. liu2025innerthoughts, pu2025codellaborator, and lee2025sensibleagent extend the proactivity design space across programming and ambient-interface settings; pasternak2025probe and sun2025userville introduce benchmarks and training regimes aimed at sharpening it, and deng2025proactivesurvey surveys the broader landscape.
+第 11.6 节已将 KAIROS 介绍为一个特征门控示例，其动机源于 chi2025proactive 报告的 $+12\%$ – $18\%$ 任务通过率提升以及仅限于高频 *Persistent Suggest* 变体的显著偏好惩罚（47% 对比 80–90%）
+liu2025innerthoughts 、 pu2025codellaborator 和 lee2025sensibleagent 将主动式设计空间扩展到编程和环境界面设置； pasternak2025probe 和 sun2025userville 引入了旨在改进主动式设计的基准和训练方案； deng2025proactivesurvey 则对更广泛的领域进行了调查。
+
+#### What.
+
+Vision-language-action work extends the harness beyond textual tool returns: brohan2023rt2 and black2024pi0 train VLA policies that execute physical actions, and ahn2022saycan grounds plans in robot affordances; industry systems such as figure2025helix and nvidia2025gr00t push similar ideas into humanoid control. These systems face the reversibility-weighted risk principle (Table˜1) at a cost asymmetry that the principle names but does not quantify for non-textual actions. *With whom.* Role-differentiated multi-agent systems (hong2024metagpt, li2023camel, chen2024agentverse, qian2024chatdev) compose agents with distinct responsibilities; multi-agent debate (du2023debate; liang2024divergent) and graph-structured workflows (zhuge2024gptswarm) explore alternatives to the parent/subagent pattern of Section˜8; guo2024massurvey surveys this space.
+
+Whether a single harness architecture can span all four extensions, or whether the “harness combinations” anthropic2026harness describes will fragment into specialised stacks, is an open design question. The *when* -extension directly continues the Capability-versus-Adaptability tension in Table˜4. The *with-whom* -extension partially maps onto Capability-versus-Reliability but raises cross-agent consistency concerns that Table˜4 does not itself cover. The *where* - and *what* -extensions raise further questions the paper’s current subsystem boundaries do not cover: which governance obligations attach when harness components become hosted services (Section˜12.5), and how reversibility-weighted risk (Table˜1) scales to physical rather than textual effects. How these extensions compose across axes, rather than within any one, is not something the paper’s single-subsystem analyses can resolve.
+
+### 12.4 Horizon Scaling: From Session to Scientific Program
+
+Section˜2.1 defines Reliable Execution as spanning “both single-turn correctness and long-horizon dependability.” How the architecture documented in Sections˜3, 4, 7, 8 and 9 (whose primary units are the turn, the session, and the sub-agent) continues to support long-horizon dependability as autonomous work extends beyond a single session is an open question. A growing literature targets this regime. lu2024aiscientist present an end-to-end autonomous research pipeline producing draft manuscripts; beel2025evalsakana provide an independent SIGIR Forum evaluation of that pipeline, characterising what “autonomous research” currently delivers and where it falls short. gottweis2025coscientist develop a multi-agent hypothesis-generation system that runs across days rather than turns, and novikov2025alphaevolve pursue algorithmic discovery over timescales that previously took human experts weeks. kwa2025metrtimehorizon ’s METR study measures the task duration at which frontier agents succeed with fixed reliability (the 50%-time horizon) and how that horizon has evolved across model generations, giving an empirical frame for this scaling question.
+
+Against the paper’s analysis, long-horizon deployment tests whether the context-management pipeline of Section˜7, the last-assistant-text return policy of Section˜8, and the append-only persistence of Section˜9 remain sufficient when sessions compose into multi-session programs. Section˜11.4 already frames this as “a directly measurable empirical question” that source-level analysis cannot resolve. Horizon scaling restates that question at the scale of weeks: whether the harness layer alone closes the gap, whether a cross-session memory substrate (Section˜12.2) is required, or whether horizon-scale work demands coordination primitives beyond session, sub-agent, and memory, is not something the paper’s session-scoped analyses can settle.
+
+### 12.5 Governance and Oversight at Scale
+
+Emerging AI regulation adds an external constraint on the architectures that implement the Authority hierarchy of Anthropic, operators, and users documented in Section˜2.1. Which logging, transparency, and human-oversight affordances coding-agent architectures should expose under that external constraint remains an open design question. The European Commission’s GPAI Code of Practice (eugpai2025cop) and implementation guidelines (eugpai2025guidelines) detail the general-purpose AI obligations that accompany the EU AI Act’s full applicability in August 2026; the MIT AI Agent Index (staufer2026agentindex) and the International AI Safety Report (bengio2026safety), already cited in Section˜11.6, motivate the disclosure and oversight side of this constraint. The Bartz v. Anthropic ruling (bartzanthropic2025) adds an input-side constraint on training-data sourcing (lawful acquisition of copyrighted works), distinct from the output-side copyright questions about AI-generated code that emerging cases address separately. An OECD report on AI governance frameworks (oecd2025governing) and an early analysis of compliance obligations for agent providers by nannini2026agentlaw sketch what regulator-facing interfaces might look like without prescribing specifics.
+
+Read against the permission pipeline analyzed in Section˜5, two properties of the current architecture are open under this constraint. First, the deny-first evaluation the paper documents is internally auditable through session transcripts (Section˜9) but not yet externally auditable in the forms that emerging frameworks such as the GPAI Code of Practice (eugpai2025cop) contemplate. Second, whether the *values-over-rules* principle, which the paper pairs with deterministic guardrails, admits the kind of explicit rule articulation that compliance review may call for is a further open question. Both properties lie within the harness rather than the model, which is where future architectures may need to expose new interfaces.
+
+### 12.6 The Evaluative Lens Revisited: Long-Term Human Capability
+
+Section˜2.4 introduces long-term human-capability preservation as an analytical lens rather than a co-equal design value; Sections˜11.2 and 11.4 extend the lens with external evidence (perceived-versus-measured productivity, comprehension loss, complexity accrual, technical-debt persistence, neural-connectivity persistence, early-career hiring decline), and Section˜14 pivots: “Future systems could treat that sustainability gap as a first-class design problem, not a downstream evaluation metric.” Whether that pivot is possible, and what architectural mechanisms a first-class treatment would require, is the last of the open questions this section records.
+
+Two sub-questions separate the measurement gap from the design gap. First, whether the empirical claims that motivate the lens are measurable at session granularity. The existing citations operate at session to multi-month scales (becker2025measuring ’s 16-developer RCT, shen2026skill ’s comprehension-test comparison, kosmyna2025brain ’s EEG study, he2026cursor ’s 807-repository causal analysis, liu2026techdebt ’s 304,000-commit audit, rak2025aihiring ’s hiring series), but the harness documented in Sections˜3, 4 and 7 exposes no per-session signal for comprehension or convention drift. Related work on programmer interaction modes (barke2023groundedcopilot) and AI-induced code-security regressions (perry2023insecurecode) sketches session-granularity measurement, and aiersilan2026vibecheck proposes a protocol for session-level cognitive-offloading probes. Second, whether architecture can respond to such measurements once they exist (an analogue of the generator–evaluator separation (anthropic2026harness) applied to the human loop, comprehension-preserving surfaces, or mechanisms not yet named) is the design-gap question Section˜14 poses. The paper takes no position on which mechanism class is appropriate, and whether the harness documented here is even the right locus for that action (as opposed to the IDE, the organisation, or the human development loop) is a question the architectural analysis cannot adjudicate; the related work surveyed in Section˜13 and the sustainability pivot of Section˜14 mark where this paper leaves the question.
+
+## 13 Related Work
+
+### 13.1 Coding Agent Taxonomy
+
+AI coding tools can be organized by the degree of autonomous action they support (Table˜5). Inline completion tools such as GitHub Copilot (chen2021evaluating) suggest code fragments within the editor without autonomous action. Chat-integrated products including Cursor and Windsurf add conversational interaction and multi-file edits but remain coupled to the IDE environment. Agentic CLI tools, including Claude Code, OpenAI’s Codex CLI, and Aider (gauthier2024aider), operate from the command line and can autonomously execute shell commands, read and write files, and iterate on outputs within a single request. Fully autonomous systems like Devin, SWE-Agent (yang2024sweagent), and OpenHands (wang2024openhands) aim for minimal human supervision, often in sandboxed cloud environments.
+
+Table 5: AI coding tool categories by degree of autonomous action.
+
+| Category 类别 | Examples | Pattern |
+| Inline completion | Copilot, Tabnine | Editor plugin |
+| Chat-integrated | Cursor, Windsurf, Cody | IDE-coupled product |
+| Agentic CLI | Claude Code, Codex CLI, Aider | Tool-use loop |
+| Fully autonomous | Devin, SWE-Agent, OpenHands | Sandbox + planning |
+
+Claude Code shares features with higher-autonomy agents (auto-mode classifier, background agent execution, remote environments) but retains interactive approval by default. Evaluation benchmarks such as SWE-Bench (jimenez2024swebench) and HumanEval (chen2021evaluating) have driven much of the academic focus on coding agents. This paper examines Claude Code’s internal architecture from source code.
+
+### 13.2 Agent Architecture Patterns
+
+Claude Code’s core loop follows the ReAct pattern (yao2022react): the model generates reasoning and tool invocations, the harness executes actions, and results feed the next iteration. Toolformer (schick2023toolformer) demonstrated that language models can learn to use tools; Claude Code uses up to 54 built-in tools and a layered permission system. The broader design space has been mapped by several surveys. weng2023agent offered the now-standard decomposition into planning, memory, and tool use, and wang2024agentsurvey catalogued early autonomous-agent work. xu2026agentsystems frames the field around three recurring trade-offs (autonomy vs. controllability, latency vs. accuracy, capability vs. reliability) that recur throughout our analysis, and hu2025adas casts agent design itself as a search problem over components, algorithms, and evaluation functions. This paper characterizes one specific point in that space.
+
+Multi-agent orchestration frameworks such as AutoGen (wu2024autogen), LangChain, and CrewAI provide conversation-based agent coordination. Claude Code’s subagent delegation (Section˜8) includes permission override precedence, two-level permission scoping, and separate transcript files for each subagent. LATS (zhou2024lats) unifies reasoning, acting, and planning in a tree-search framework; Claude Code’s plan permission mode implements a simpler plan-then-execute approach.
+
+Practitioner writing has converged on a handful of recurring patterns that Claude Code’s architecture instantiates. Anthropic’s own “Building Effective Agents” (anthropic2024effective) distinguishes agents from workflows and argues for simple composable patterns over heavy frameworks. martin2026patterns synthesizes seven patterns observed in production systems, including giving agents filesystem and shell access as a general-purpose action layer, and discovering actions on demand rather than loading every tool schema upfront. chase2025deepagents observes that Claude Code’s planning tool is “basically a no-op” whose value lies in keeping the agent on track rather than in performing any external computation. swyx2025agentengineering argues that authority is the element academic frameworks most often leave out, calling trust “the most overlooked element” in production agent design, a gap the permission analysis in Section˜5 attempts to close. huyen2025agents makes the compound-error concern concrete: at 95% per-step accuracy, a 100-step task succeeds only 0.6% of the time, which motivates the per-step verification patterns we trace in Section˜4 and Section˜5.
+
+#### Context management.
+
+Table˜6 presents a design-space taxonomy of context management approaches. Claude Code’s five-layer compaction pipeline applies multiple strategies at different granularities before escalating, with cache-aware compression and virtual-view-on-read semantics. zhang2026ace characterizes two failure modes that this design mitigates (summarization that drops domain details, and detail loss from iterative context rewriting), and instead proposes treating context as an “evolving playbook” that accumulates strategies over time. Claude Code’s approach is consistent with that framing, since the CLAUDE.md hierarchy accumulates structured instructions rather than repeatedly summarizing them. hu2025memory distinguishes context engineering from agent memory: context engineering handles transient assembly, while memory covers persistent factual knowledge and experiential traces. Claude Code’s architecture separates the two in the same way, pairing a compaction pipeline with a file-based memory hierarchy.
+
+Table 6: Design space of context management approaches in LLM-based tools.
+表 6 ： 基于 LLM 的工具中上下文管理方法的设计空间。
+
+| Approach 方法 | Mechanism 机制 | Granularity 粒度 |
+| Simple truncation 简单截断 | Drop oldest messages 删除最旧的消息 | Coarse 粗 |
+| Sliding window 推拉窗 | Fixed-size recent history   固定大小的近期历史 | Medium 中等的 |
+| RAG | Retrieve relevant snippets   检索相关片段 | Fine 美好的 |
+| Single summarization 单项总结 | One-pass compress 单次压缩 | Coarse 粗 |
+| Graduated compaction 分级压实 | Multi-layer pipeline 多层管道 | Very fine 非常好 |
+
+#### Safety and permissions.
+安全和许可。
+
+Production coding agents adopt safety architectures that vary along three axes: *approval model* (per-action prompting, classifier-mediated automation, or no prompting with post-hoc review), *isolation boundary* (OS-level container, filesystem sandbox, permission-scoped tool pool, or none), and *recovery mechanism* (version-control rollback, session-scoped permission reset, or checkpoint-based rewind). SWE-Agent and OpenHands (yang2024sweagent; wang2024openhands) rely primarily on Docker container isolation, providing environment-level sandboxing that constrains all agent actions. Codex CLI supports sandbox modes and approval policies for shell commands. Aider (gauthier2024aider) uses Git as its primary safety mechanism, making all changes reversible through version control. Claude Code combines per-action deny-first rules, an ML-based classifier for automated approval, optional shell sandboxing, and session-scoped permission non-restoration, layering multiple mechanisms rather than relying on a single isolation boundary.
+生产环境中的编码代理采用的安全架构主要围绕三个方面展开： *审批模型* （逐个操作提示、分类器介导的自动化或无提示但事后审查）、 *隔离边界* （操作系统级容器、文件系统沙箱、权限范围的工具池或无隔离）以及 *恢复机制* （版本控制回滚、会话范围的权限重置或基于检查点的回溯）。SWE-Agent 和 OpenHands （ yang2024sweagent ； wang2024openhands ） 主要依赖 Docker 容器隔离，提供环境级沙箱来约束所有代理操作。Codex CLI 支持 shell 命令的沙箱模式和审批策略。Aider （ gauthier2024aider ） 使用 Git 作为其主要安全机制，通过版本控制使所有更改都可逆
+Claude Code 结合了按操作拒绝优先规则、基于机器学习的自动审批分类器、可选的 shell 沙箱和会话范围的权限不恢复，采用多层机制，而不是依赖单一的隔离边界。
+
+#### Protocols and extensibility.
+协议和可扩展性。
+
+The Model Context Protocol that Claude Code uses as its primary external tool integration has become a de facto standard with a substantial ecosystem and a corresponding attack surface. hou2025mcpsurvey catalogues thousands of community-developed MCP servers across 26 major directories and organizes MCP-specific threats into four attacker categories and sixteen scenarios, including tool poisoning, rug pulls, and cross-server shadowing. The permission and deny-rule machinery analyzed in Section˜5 and the pre-filtering step in Section˜6.2 can be read as the runtime side of the mitigations that survey calls for.
+Claude Code 用作其主要外部工具集成的模型上下文协议 (MCP) 已成为事实上的标准，拥有庞大的生态系统和相应的攻击面。hou2025mcpsurvey 调查 了 26 个主要目录中数千个由社区开发的 MCP 服务器，并将 MCP 特有的威胁归纳为四类攻击者和十六种场景，包括工具投毒、恶意撤回和跨服务器影子攻击。 第 5 节分析的权限和拒绝规则机制以及第 6.2 节中的预过滤步骤可以理解为该调查所呼吁的缓解措施的运行时部分。
+
+#### Software architecture.
+软件架构。
+
+Layered architecture patterns (garlan1993architecture) inform our five-layer decomposition. Role-based access control models (sandhu1996rbac) provide theory for the permission mode system. Browser sandboxing (reis2009isolating) is a similar per-process isolation approach. Multi-agent system theory (wooldridge2009multiagent) helps explain subagent delegation.
+分层架构模式 （ garlan1993architecture ） 为我们的五层分解提供了理论基础。基于角色的访问控制模型 （ sandhu1996rbac ） 为权限模式系统提供了理论基础。浏览器沙箱 （ reis2009isolating ） 是一种类似的进程级隔离方法。多智能体系统理论 （ wooldridge2009multiagent ） 有助于解释子智能体委托。
+
+#### Positioning.
+定位。
+
+Prior work on coding agents has focused on benchmarks (how well agents solve tasks), frameworks (how to compose agents), and products (what users can do). This paper contributes a source-grounded design-space analysis of a production coding agent, using source-level analysis and architectural comparison to surface design choices and trade-offs. It draws on the software architecture case study tradition (garlan1993architecture) but applies it to an LLM-based agent by systematically identifying design questions, mapping alternatives, and contrasting Claude Code’s choices with those of OpenClaw, an independent AI agent system operating from a different deployment context.
+以往关于编码代理的研究主要集中在基准测试（代理解决任务的效率）、框架（如何构建代理）和产品（用户可以做什么）等方面。本文对一个生产级编码代理进行了基于源代码的设计空间分析，通过源代码级分析和架构比较，揭示了设计选择和权衡取舍。本文借鉴了软件架构案例研究的传统 （ garlan1993architecture ） ，并将其应用于基于 LLM 的代理，通过系统地识别设计问题、映射备选方案，并将 Claude Code 的选择与 OpenClaw（一个运行在不同部署环境下的独立 AI 代理系统）的选择进行对比。
+
+## 14 Conclusion 14
+结论
+
+This paper shows that production coding agents can be understood as answers to a recurring set of design questions: where reasoning sits relative to the harness, how execution, safety, extensibility, context, delegation, and persistence are organized, and which trade-offs those choices encode. Claude Code occupies a clear design point within that space. It gives the model broad local autonomy while surrounding it with a dense deterministic harness for permissioning, tool routing, context compaction, extensibility, and session recovery. Read through the five values and thirteen design principles identified in Section˜2, these choices are coherent rather than ad hoc: the system consistently prioritizes human decision authority, safety, reliable execution, capability amplification, and contextual adaptability.
+本文表明，生产编码代理可以被理解为对一系列反复出现的设计问题的解答：推理相对于框架的位置、执行、安全性、可扩展性、上下文、委托和持久性是如何组织的，以及这些选择体现了哪些权衡。Claude Code 在这一领域占据了一个清晰的设计点。它赋予模型广泛的局部自主性，同时又为其构建了一个密集的确定性框架，用于权限管理、工具路由、上下文压缩、可扩展性和会话恢复。阅读第 2 节中确定的五个价值观和十三项设计原则，你会发现这些选择是连贯的，而非临时性的：系统始终优先考虑人类决策权、安全性、可靠执行、能力增强和上下文适应性。
+
+The OpenClaw comparison sharpens the main architectural finding by showing that the same design questions recur in different agent systems but produce different answers. Where Claude Code invests in per-action safety classification and graduated context compression within a CLI harness, OpenClaw invests in perimeter-level access control and structured long-term memory within a multi-channel gateway. The two systems can even compose: OpenClaw hosts Claude Code as an external harness via ACP. For agent builders, the most consequential open question is therefore not how to add more autonomy, but how to preserve human capability over time. As the evaluative lens in Section˜2.4, the analysis in Section˜11, and the open questions surveyed in Section˜12 document, the architecture provides limited mechanisms that explicitly preserve long-term human understanding, codebase coherence, or the developer pipeline. Future systems could treat that sustainability gap as a first-class design problem, not a downstream evaluation metric.
+
+## References
+
+## 15 Package Structure 15
+封装结构
+
+This appendix shows what each part of the TypeScript package does at runtime.
+本附录展示了 TypeScript 包的每个部分在运行时所做的事情。
+
+### 15.1 Directory-to-Responsibility Map 15.1
+目录到职责映射
+
+![Refer to caption](https://arxiv.org/html/2604.14228v1/x8.png)
+
+Figure 9: Extracted package structure mapped to runtime responsibilities. Left column: TypeScript source directories and key files. Right column: inferred runtime roles. This appendix represents reconstructed analysis (Tier C evidence), not official Anthropic documentation.
+图 9 ： 提取的包结构与运行时职责的映射。左列：TypeScript 源目录和关键文件。右列：推断的运行时角色。本附录代表重构分析（C 级证据），并非 Anthropic 官方文档。
+
+The package (Figure˜9) is organized around a src/ directory. Table˜7 lists the key files that form the main subsystems.
+该软件包（ 图 ˜ 9 ）以 src/ 目录为中心进行组织。 表 ˜ 7 列出了构成主要子系统的关键文件。
+
+Table 7: Key files by approximate size and runtime responsibility.
+表 7 ： 按大致大小和运行时职责划分的关键文件。
+
+| File 文件 | Size 尺寸 | Responsibility 责任 |
+| main.tsx | 804KB | Entry point, mode dispatch, setup   入口点、模式调度、设置 |
+| query.ts | 68KB | Core agent loop, 5 context shapers   核心代理循环，5 个上下文塑造器 |
+| QueryEngine.ts | 47KB | SDK/headless conversation wrapper   SDK/无头对话封装器 |
+| Tool.ts | 30KB | Tool interface, types, utilities   工具界面、类型、实用程序 |
+| history.ts | 14KB | Global prompt history 全球提示历史 |
+| mcp/client.ts | Large 大的 | MCP client (8+ transport variants)   MCP 客户端（8 种以上传输变体） |
+| compact.ts | Large 大的 | Compaction engine 压实发动机 |
+| AgentTool.tsx | Large 大的 | Agent tool, subagent dispatch   代理工具，子代理调度 |
+| runAgent.ts | Large 大的 | 21-parameter agent lifecycle   21参数代理生命周期 |
+
+The tools/ directory contains approximately 42 subdirectories implementing tools, with the corresponding schema, description, permission requirements, and execution logic. The commands/ directory contains approximately 86 slash command subdirectories.
+tools/ 目录包含大约 42 个子目录，用于实现各种工具，并包含相应的架构、描述、权限要求和执行逻辑。commands / 目录包含大约 86 个斜杠命令子目录。
+
+Key service directories include services/tools/ (StreamingToolExecutor, toolOrchestration, toolExecution), services/compact/ (compaction engine), and services/mcp/ (MCP client and configuration). The permission infrastructure spans utils/permissions/ (rule evaluation, classifier), hooks/useCanUseTool.tsx (permission handler), types/permissions.ts (mode definitions), and types/hooks.ts (event schemas).
+关键服务目录包括 services/tools/ （StreamingToolExecutor、toolOrchestration、toolExecution）、 services/compact/ （压缩引擎）和 services/mcp/ （MCP 客户端和配置）。权限基础架构涵盖 utils/permissions/ （规则评估、分类器）、 hooks/useCanUseTool.tsx （权限处理程序）、 types/permissions.ts （模式定义）和 types/hooks.ts （事件模式）。
+
+A structural quirk: query.ts (file) and query/ (directory) coexist. The file contains the main query loop; the directory houses helper modules for loop configuration and context assembly.
+结构上有个特殊之处： query.ts 文件和 query/ 目录同时存在。该文件包含主查询循环；目录则存放用于循环配置和上下文组装的辅助模块。
+
+### 15.2 Conditional Tool Availability 15.2
+条件工具可用性
+
+The getAllBaseTools() function (tools.ts) constructs different tool sets depending on mode, build, environment, and feature flags (Table˜8). The model may see as few as 3 tools in simple mode (Bash, Read, Edit) or 40+ tools in a full internal build with all features enabled.
+\`getAllBaseTools()\` 函数（ \`tools.ts\` ）会根据模式、构建、环境和功能标志（ 表 8 ）构建不同的工具集。在简单模式下（Bash、读取、编辑），模型可能只看到 3 个工具；而在启用所有功能的完整内部构建中，则可能看到 40 多个工具。
+
+Table 8: Conditional tool availability categories.
+表 8 ： 工具可用性条件类别。
+
+| Category 类别 | Examples 示例 |
+| Always included 始终包含在内 | AgentTool, BashTool, FileReadTool, FileEditTool, FileWriteTool, SkillTool, WebFetchTool, WebSearchTool   AgentTool、BashTool、FileReadTool、FileEditTool、FileWriteTool、SkillTool、WebFetchTool、WebSearchTool |
+| Environment 环境 | GlobTool/GrepTool (unless embedded), ConfigTool (ant-only), PowerShellTool (Windows)   GlobTool/GrepTool（除非是嵌入式工具）、ConfigTool（仅限 Ant）、PowerShellTool（Windows） |
+| Feature flag 功能标志 | TaskCreate/Get/Update/List (todoV2), EnterWorktreeTool (worktree), TeamTools (swarms), ToolSearchTool   TaskCreate/Get/Update/List ( todoV2 )、EnterWorktreeTool ( worktree )、TeamTools ( swarms )、ToolSearchTool |
+| Null-checked 空值检查 | SuggestBackgroundPRTool, WebBrowserTool, RemoteTriggerTool, MonitorTool, SleepTool   SuggestBackgroundPRTool、WebBrowserTool、RemoteTriggerTool、MonitorTool、SleepTool |
+
+### 15.3 Cross-File Dependencies 15.3
+跨文件依赖关系
+
+The import graph includes the following dependency structure. QueryEngine.ts delegates to query.ts for turn execution. query.ts imports from services/tools/ (StreamingToolExecutor, runTools) and services/compact/ (autoCompact, buildPostCompactMessages). QueryEngine.ts imports from memdir/ for memory and prompt assembly. The code explicitly avoids circular imports: types/permissions.ts was extracted to break import cycles, and setCachedClaudeMdContent() in context.ts avoids a cycle through the permissions/filesystem path.
+导入图包含以下依赖结构。QueryEngine.ts 委托 query.ts 执行 turn 操作。query.ts 从 services/tools/ （StreamingToolExecutor、runTools ） 和 services/compact/ （autoCompact、buildPostCompactMessages）导入 。QueryEngine.ts 从 memdir/ 导入内存和提示符程序集。代码明确避免了循环导入： types/permissions.ts 被提取出来以打破导入循环，而 context.ts 中的 setCachedClaudeMdContent() 则避免了对 permissions/filesystem 路径的循环调用。
+
+## 16 Evidence Base and Methodology 16
+证据基础和方法
+
+This appendix describes the evidence sources, the analytic procedure, and the epistemological constraints of this study.
+本附录描述了本研究的证据来源、分析程序和认识论限制。
+
+### 16.1 Evidence Base and Evidence Tiers 16.1
+证据基础和证据层级
+
+Claims in this paper are grounded at three evidence tiers:
+本文的论点基于三个层面的证据：
+
+- Tier A (product-documented): Claims drawn from official Anthropic documentation and engineering publications. These establish product intent but may not reflect internal implementation.
+
+A 级 （产品文档支持） ：声明源自 Anthropic 官方文档和工程出版物。这些声明阐明了产品意图，但可能与内部实现情况不符。
+- Tier B (code-verified): Claims citing specific files and functions in the extracted TypeScript codebase (v2.1.88, obtained from a publicly available npm package extraction). This is the strongest evidence tier.
+
+B 级 （代码验证） ：引用提取出的 TypeScript 代码库（v2.1.88，取自公开的 npm 包）中的特定文件和函数作为证据。这是最强有力的证据级别。
+- Tier C (reconstructed): Claims derived from community analysis, OpenClaw structural comparison, or inference from code patterns. These are stated with hedging language.
+
+C 级 （重构） ：此类主张源自社区分析、OpenClaw 结构比较或代码模式推断，且措辞较为谨慎。
+
+The source corpus comprises approximately 1,884 files totaling roughly 512K lines of TypeScript. OpenClaw is used for calibration rather than ground truth.
+源语料库包含约 1884 个文件，总计约 51.2 万行 TypeScript 代码。OpenClaw 用于校准而非提供真实值。
+
+### 16.2 Design-Space Analytic Procedure 16.2
+设计空间分析程序
+
+Design questions were identified by examining each subsystem for recurring choice points where alternative designs exist in other production agents. Claude Code’s answers to each question were traced through specific source files and function implementations (Tier B evidence). The five-value framework (human decision authority, safety, security, and privacy, reliable execution, capability amplification, and contextual adaptability) was identified from official documentation and creator statements (Tier A), then traced through thirteen design principles to architectural decisions. Long-term capability preservation is treated separately as an evaluative lens rather than a design value, because it is not prominently reflected as a design driver in the architecture or in Anthropic’s stated values (Section˜2.4). Token economics serves as a cross-cutting constraint that bounds all five values simultaneously, revealing how individual subsystem choices interact under shared resource pressure.
+通过检查每个子系统，寻找其他生产代理中存在替代设计的重复选择点，从而确定设计问题。克劳德·科德对每个问题的回答都通过特定的源文件和功能实现进行追踪（ B 级证据）。五项价值框架（人类决策权、安全、保障和隐私、可靠执行、能力增强和情境适应性）从官方文档和创建者声明中确定（ A 级证据 ），然后通过十三项设计原则追踪到架构决策。长期能力保持被单独视为一种评估视角，而非设计价值，因为它在架构或 Anthropic 公司声明的价值观中并未作为设计驱动因素得到显著体现（ 第 2.4 节 ）。代币经济作为一项贯穿始终的约束，同时约束所有五项价值，揭示了在共享资源压力下各个子系统选择如何相互作用。
+
+### 16.3 Limitations 16.3
+局限性
+
+- Static snapshot. Analysis reflects one version (v2.1.88). Feature flags (e.g., TRANSCRIPT\_CLASSIFIER, CONTEXT\_COLLAPSE) create build-time variability; different build targets may produce functionally different applications.
+
+静态快照。 分析仅反映一个版本（v2.1.88）。功能标志（ 例如 ， TRANSCRIPT\_CLASSIFIER 、 CONTEXT\_COLLAPSE ）会造成构建时差异；不同的构建目标可能会产生功能不同的应用程序。
+- Reverse-engineering epistemology. Source code reveals implemented structure, control flow, dependencies, and feature gates. It cannot confirm design intent, enabled production flags, runtime prevalence, or unshipped behavior.
+
+- Single-system analysis. Findings describe Claude Code’s design space, not the entire design space of coding agents. Generalizations are bounded.
+逆向工程认识论。 源代码揭示了已实现的结构、控制流、依赖关系和功能门控。但它无法确认设计意图、已启用的生产环境标志、运行时普遍性或未发布的行为。
+
+- OpenClaw snapshot. The OpenClaw analysis reflects a specific development state and may not represent its current capabilities.
+单系统分析。 研究结果描述的是克劳德代码的设计空间，而非编码代理的整个设计空间。概括性结论是有局限性的。
+
+OpenClaw 快照。 此 OpenClaw 分析反映的是特定开发状态，可能无法代表其当前功能。
