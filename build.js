@@ -315,8 +315,9 @@ function parseDoc(file) {
   const fileBase = path.basename(file, ".md").replace(/-summary$/i, "");
   let title = meta.title || h1s[0] || fileBase;
   let subtitle = "";
+  const cleanTitle = (t) => String(t).split(/\s*description\s*[:：]/i)[0].trim();
   let hasPair = false;
-  if (h1s.length >= 2) {
+  if (!meta.title && h1s.length >= 2) {
     const [a, b] = h1s;
     const aIsCjk = /[\u4e00-\u9fa5]/.test(a);
     const bIsCjk = /[\u4e00-\u9fa5]/.test(b);
@@ -369,7 +370,8 @@ function parseDoc(file) {
       if (/^[^\s:：]{1,12}[:：]\s*https?:\/\//.test(l)) continue;
       if (/^https?:\/\//.test(l)) continue;
       if (/\[[0-9]{1,2}:[0-9]{2}/.test(l)) continue;
-      if (l.length >= 30) { desc = l; break; }
+      if (/^!\[/.test(l)) continue;
+      if (stripMd(l).length >= 30) { desc = l; break; }
     }
     if (!desc) {
       for (const l0 of bl) {
@@ -378,7 +380,7 @@ function parseDoc(file) {
         if (META.test(deLead(m[2]))) continue;
         if (/^https?:\/\//.test(m[2])) continue;
         const t = m[2].replace(/^\*\*[^*]+\*\*[:：]?\s*/, "");
-        if (t.length >= 25) { desc = t; break; }
+        if (stripMd(t).length >= 25 && stripMd(t) !== "图片") { desc = t; break; }
       }
     }
   }
@@ -394,6 +396,10 @@ function parseDoc(file) {
   const enWords = (plain.replace(/[\u4e00-\u9fa5]/g, " ").match(/[A-Za-z][A-Za-z'-]*/g) || []).length;
   const wordCount = cjk + enWords;
   const readingTime = Math.max(1, Math.ceil(cjk / 400 + enWords / 220));
+
+  title = cleanTitle(title) || fileBase;
+  subtitle = cleanTitle(subtitle);
+  if (title.length > 90 && !meta.title) title = fileBase;
 
   const group = GROUP_BY_ID.get(cat.group) || { id: cat.group, name: cat.group };
 
