@@ -1,0 +1,303 @@
+{
+  "groups": [
+    { "id": "ai-tech", "name": "AI 与技术", "nameEn": "AI & Tech" },
+    { "id": "course", "name": "课程与学习", "nameEn": "Courses & Learning" },
+    { "id": "talk", "name": "访谈与人物", "nameEn": "Talks & People" },
+    { "id": "biz", "name": "商业与创业", "nameEn": "Business & Startups" },
+    { "id": "money", "name": "投资与财经", "nameEn": "Money & Markets" },
+    { "id": "meta", "name": "仓库说明", "nameEn": "Meta" }
+  ],
+  "categories": [
+    {
+      "slug": "gaurav-sen",
+      "dir": "Gaurav Sen",
+      "name": "Gaurav Sen 技术课",
+      "group": "course",
+      "icon": "🧑‍🏫",
+      "color": "#4C6EF5",
+      "order": 10,
+      "type": "course",
+      "description": "系统设计、面试、职业发展与 AI 概念课程笔记，共 133 篇，是库中体量最大的系列。",
+      "subcategories": [
+        { "dir": "系统设计", "name": "系统设计", "icon": "🏗️" },
+        { "dir": "其他", "name": "其他", "icon": "🗂️" },
+        { "dir": "面试职业发展", "name": "面试与职业发展", "icon": "🎯" },
+        { "dir": "AI相关", "name": "AI 相关", "icon": "🤖" },
+        { "dir": "低层次设计LLD", "name": "低层次设计 LLD", "icon": "🧱" }
+      ]
+    },
+    {
+      "slug": "podcast",
+      "dir": "podcast",
+      "name": "播客总结",
+      "group": "talk",
+      "icon": "🎙️",
+      "color": "#F76707",
+      "order": 20,
+      "type": "podcast",
+      "description": "Lex Fridman、小宇宙、a16z、Andrej Karpathy 等播客的中文总结。",
+      "subcategories": [
+        { "dir": "Lex Fridman", "name": "Lex Fridman", "icon": "🎧" },
+        { "dir": "xiaoyuzhou", "name": "小宇宙", "icon": "📻" },
+        { "dir": "andrej karpathy", "name": "Andrej Karpathy", "icon": "🧠" },
+        { "dir": "a16z", "name": "a16z", "icon": "🏢" }
+      ]
+    },
+    {
+      "slug": "claude",
+      "dir": "claude",
+      "name": "Claude 官方教程",
+      "group": "ai-tech",
+      "icon": "🟠",
+      "color": "#E8590C",
+      "order": 30,
+      "type": "doc",
+      "description": "Anthropic / Claude Code 官方教程、Skills、Agent 原理与最佳实践。",
+      "subcategories": [{ "dir": "tutorial", "name": "教程", "icon": "📖" }]
+    },
+    {
+      "slug": "ai-interview",
+      "dir": "AI科技访谈",
+      "name": "AI 科技访谈",
+      "group": "talk",
+      "icon": "🎤",
+      "color": "#7048E8",
+      "order": 40,
+      "type": "interview",
+      "description": "Sam Altman、Elon Musk、Ilya Sutskever 等 AI 人物访谈与深度对谈。",
+      "subcategories": [
+        { "dir": "stanford-cme295-llms-autumn-2025", "name": "Stanford CME295", "icon": "🎓" },
+        { "dir": "sequoia-ai-ascent-2026", "name": "Sequoia AI Ascent 2026", "icon": "🌲" }
+      ]
+    },
+    {
+      "slug": "ai-agent",
+      "dir": "AI-Agent-工程",
+      "name": "AI Agent 工程",
+      "group": "ai-tech",
+      "icon": "🧠",
+      "color": "#1098AD",
+      "order": 50,
+      "type": "analysis",
+      "description": "Agent Harness、上下文压缩、多代理架构、Skill 设计与工程实践的深度研究。",
+      "subcategories": []
+    },
+    {
+      "slug": "ai",
+      "dir": "AI",
+      "name": "AI 深度解析",
+      "group": "ai-tech",
+      "icon": "🔬",
+      "color": "#1C7ED6",
+      "order": 60,
+      "type": "analysis",
+      "description": "开源项目源码级解析与 AI 理论研究。",
+      "subcategories": [
+        { "dir": "Projects", "name": "开源项目解析", "icon": "📦" },
+        { "dir": "Research", "name": "理论研究", "icon": "🧬" }
+      ]
+    },
+    {
+      "slug": "ai-llm",
+      "dir": "AI与LLM",
+      "name": "AI 与 LLM",
+      "group": "ai-tech",
+      "icon": "🧬",
+      "color": "#1971C2",
+      "order": 70,
+      "type": "article",
+      "description": "大模型行业分析、技术综述与经典文章。",
+      "subcategories": []
+    },
+    {
+      "slug": "ai-product",
+      "dir": "AI产品开发",
+      "name": "AI 产品开发",
+      "group": "ai-tech",
+      "icon": "🧩",
+      "color": "#0CA678",
+      "order": 80,
+      "type": "article",
+      "description": "AI 产品思维、产品经典文章与实战案例。",
+      "subcategories": []
+    },
+    {
+      "slug": "coding-tools",
+      "dir": "编程与工具",
+      "name": "编程与工具",
+      "group": "ai-tech",
+      "icon": "🛠️",
+      "color": "#495057",
+      "order": 90,
+      "type": "article",
+      "description": "开发工具链、工作流、Vibe Coding 与 Git 实操。",
+      "subcategories": []
+    },
+    {
+      "slug": "startup-school",
+      "dir": "AI Startup School",
+      "name": "AI Startup School",
+      "group": "course",
+      "icon": "🚀",
+      "color": "#F03E3E",
+      "order": 100,
+      "type": "course",
+      "description": "YC AI Startup School 与 OpenAI/YC 创业课程笔记。",
+      "subcategories": []
+    },
+    {
+      "slug": "cs224r",
+      "dir": "CS224R-深度强化学习",
+      "name": "CS224R 深度强化学习",
+      "group": "course",
+      "icon": "📐",
+      "color": "#5F3DC4",
+      "order": 110,
+      "type": "course",
+      "description": "Stanford CS224R 课程讲义笔记，共 19 讲。",
+      "subcategories": [{ "dir": "Lectures", "name": "讲义", "icon": "📚" }]
+    },
+    {
+      "slug": "cs149",
+      "dir": "Stanford-CS149",
+      "name": "CS149 并行计算",
+      "group": "course",
+      "icon": "⚡",
+      "color": "#0B7285",
+      "order": 120,
+      "type": "course",
+      "description": "Stanford CS149 并行计算课程笔记。",
+      "subcategories": []
+    },
+    {
+      "slug": "cs230",
+      "dir": "CS230",
+      "name": "CS230 深度学习",
+      "group": "course",
+      "icon": "🧿",
+      "color": "#862E9C",
+      "order": 130,
+      "type": "course",
+      "description": "Stanford CS230 深度学习课程笔记。",
+      "subcategories": []
+    },
+    {
+      "slug": "learning",
+      "dir": "学习方法",
+      "name": "学习方法",
+      "group": "course",
+      "icon": "🧭",
+      "color": "#2B8A3E",
+      "order": 140,
+      "type": "article",
+      "description": "学习技巧、效率方法与认知方法论。",
+      "subcategories": []
+    },
+    {
+      "slug": "people",
+      "dir": "人物故事",
+      "name": "人物故事",
+      "group": "talk",
+      "icon": "🧑",
+      "color": "#C2255C",
+      "order": 150,
+      "type": "interview",
+      "description": "个人成长访谈与人物深度故事。",
+      "subcategories": []
+    },
+    {
+      "slug": "startup",
+      "dir": "创业商业",
+      "name": "创业与商业",
+      "group": "biz",
+      "icon": "💼",
+      "color": "#E8590C",
+      "order": 160,
+      "type": "article",
+      "description": "创业方法论、商业模式、YC 经验与增长策略。",
+      "subcategories": []
+    },
+    {
+      "slug": "tech-trend",
+      "dir": "科技趋势",
+      "name": "科技趋势",
+      "group": "biz",
+      "icon": "📈",
+      "color": "#0B7285",
+      "order": 170,
+      "type": "article",
+      "description": "科技行业趋势研判与产业观察。",
+      "subcategories": []
+    },
+    {
+      "slug": "tech-science",
+      "dir": "科技科普",
+      "name": "科技科普",
+      "group": "biz",
+      "icon": "🔭",
+      "color": "#364FC7",
+      "order": 180,
+      "type": "video",
+      "description": "芯片、航天等硬科技的科普视频总结。",
+      "subcategories": []
+    },
+    {
+      "slug": "finance",
+      "dir": "金融与投资",
+      "name": "金融与投资",
+      "group": "money",
+      "icon": "💰",
+      "color": "#2F9E44",
+      "order": 190,
+      "type": "article",
+      "description": "金融投资分析、资产配置与投资常识。",
+      "subcategories": []
+    },
+    {
+      "slug": "macro",
+      "dir": "宏观经济",
+      "name": "宏观经济",
+      "group": "money",
+      "icon": "🌍",
+      "color": "#7048E8",
+      "order": 200,
+      "type": "article",
+      "description": "宏观经济形势与政策分析。",
+      "subcategories": []
+    },
+    {
+      "slug": "crypto",
+      "dir": "投资加密币",
+      "name": "加密货币投资",
+      "group": "money",
+      "icon": "🪙",
+      "color": "#F59F00",
+      "order": 210,
+      "type": "article",
+      "description": "比特币、黄金等加密资产的投资研究与演讲总结。",
+      "subcategories": []
+    },
+    {
+      "slug": "meta-docs",
+      "dir": "__meta__",
+      "name": "仓库说明",
+      "group": "meta",
+      "icon": "🗂️",
+      "color": "#868E96",
+      "order": 900,
+      "type": "meta",
+      "description": "仓库 README 与文档规则。",
+      "subcategories": []
+    }
+  ],
+  "documentTypes": [
+    { "id": "course", "name": "课程讲义" },
+    { "id": "podcast", "name": "播客总结" },
+    { "id": "interview", "name": "人物访谈" },
+    { "id": "video", "name": "视频总结" },
+    { "id": "analysis", "name": "深度分析" },
+    { "id": "article", "name": "文章" },
+    { "id": "doc", "name": "官方文档" },
+    { "id": "meta", "name": "仓库说明" }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "second-brain",
+  "private": true,
+  "scripts": { "build": "node build.js" }
+}
